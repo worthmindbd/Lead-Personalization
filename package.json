@@ -1,0 +1,16 @@
+{
+  "name": "lead-personalization",
+  "version": "1.0.0",
+  "description": "B2B cold email personalization workspace. Researches leads from CSV, writes hyper-personalized 3-email sequences, and exports enriched files for any ESP.",
+  "private": true,
+  "scripts": {
+    "playwright:install": "playwright-cli install-browser chrome-for-testing",
+    "playwright:open": "playwright-cli open",
+    "playwright": "playwright-cli"
+  },
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/cli": "^0.1.14",
+    "playwright": "^1.61.1"
+  }
+}

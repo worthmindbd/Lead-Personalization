@@ -1,0 +1,999 @@
+#!/usr/bin/env python3
+"""Drive lead pipeline orchestrator.
+
+One command drives every lead list through:
+
+    Raw Leads (Drive) -> download -> clean -> upload Cleaned Leads/<title>/
+      -> verify (Reoon, up to 500/day) -> upload Verified Leads/<title>/
+      -> personalize DELTA only (new verified emails) -> merge cumulative
+      -> upload Personalized leads/<title>/
+
+State lives in .pipeline/state.json; every run is resumable and idempotent.
+Working files live in leads/pipeline/<slug>/ (slug = sanitized Drive title,
+e.g. "July 25,2026" -> "july-25-2026") because the existing scripts derive
+campaign names that would collide across lists (e.g. every "July ..." list
+collapses to campaign "july").
+
+Local testing without Drive:
+
+    .venv/bin/python scripts/pipeline/run_pipeline.py \
+        --local-only --raw tests/fixtures/gmb_raw_sample.csv \
+        --title "July 25,2026" --no-verify --no-render --no-linkedin
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from personalization.clean_gmb_leads import (  # noqa: E402
+    campaign_stem as clean_campaign_stem,
+    clean_gmb_leads,
+    count_named_path,
+)
+from personalization.create_batch_manifest import create_manifest  # noqa: E402
+from personalization.normalize_leads import (  # noqa: E402
+    normalize_leads,
+    normalized_output_path,
+)
+from personalization.process_batch import merged_output_path  # noqa: E402
+from verify_emails_reoon import (  # noqa: E402
+    CACHE_FILE as REOON_CACHE_FILE,
+    EMAIL_COLUMNS,
+    extract_emails_from_csv,
+    load_dotenv,
+)
+
+PY = str(ROOT / ".venv" / "bin" / "python")
+STATE_FILE = ROOT / ".pipeline" / "state.json"
+ORPHAN_DIR = ROOT / ".pipeline" / "orphaned"
+WORK_ROOT = ROOT / "leads" / "pipeline"
+MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
+ENRICHED_DIR = ROOT / "leads" / "enriched"
+COPY_DIR = ROOT / "copy"
+CAMPAIGNS_DIR = ROOT / "campaigns"
+
+DRIVE_RAW = "Raw Leads"
+DRIVE_CLEANED = "Cleaned Leads"
+DRIVE_VERIFIED = "Verified Leads"
+DRIVE_PERSONALIZED = "Personalized leads"
+DRIVE_REPORT_SHEET = "Enrichment-Reports"
+
+
+# ---------------------------------------------------------------------------
+# Small utilities
+# ---------------------------------------------------------------------------
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def run_stamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def slugify(title: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+    return slug or "list"
+
+
+def banner(text: str) -> None:
+    line = "=" * max(64, len(text) + 8)
+    print(f"\n{line}\n    {text}\n{line}")
+
+
+def stage_line(stage: str, detail: str) -> None:
+    print(f"\n-- {stage.upper()}: {detail}")
+
+
+def load_json(path: Path, default):
+    if not path.is_file():
+        return default
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_json_atomic(path: Path, data) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def load_rows(path: Path) -> tuple[list[str], list[dict]]:
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        return list(reader.fieldnames or []), list(reader)
+
+
+def row_email(row: dict) -> str:
+    for col in EMAIL_COLUMNS:
+        raw = (row.get(col) or "").strip()
+        if raw:
+            email = raw.replace(";", "|").split("|")[0].strip().lower()
+            if "@" in email:
+                return email
+    return ""
+
+
+def csv_row_count(path: Path) -> int:
+    if not path.is_file():
+        return 0
+    # Parse properly: enriched rows contain quoted multi-line email bodies,
+    # so counting raw lines would overcount.
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        return max(0, sum(1 for _ in csv.reader(f)) - 1)
+
+
+# ---------------------------------------------------------------------------
+# State
+# ---------------------------------------------------------------------------
+
+
+def load_state() -> dict:
+    state = load_json(STATE_FILE, {"version": 1, "lists": {}})
+    state.setdefault("lists", {})
+    return state
+
+
+def save_state(state: dict) -> None:
+    save_json_atomic(STATE_FILE, state)
+
+
+def new_entry(title: str, mtime: str = "") -> dict:
+    return {
+        "slug": slugify(title),
+        "discovered_at": now_iso(),
+        "drive_mtime": mtime,
+        "stage": "discovered",
+        "raw_csv": None,
+        "cleaned_csv": None,
+        "verified_csv": None,
+        "enriched_csv": None,
+        "uploads": {"cleaned": False, "verified_rows": -1, "enriched_rows": -1},
+        "verify_complete": False,
+        "pending_verification": None,
+        "pending_delta": None,
+        "personalized_emails": 0,
+        "active_delta": None,
+        "last_error": None,
+        "last_run": None,
+    }
+
+
+def workdir_for(entry: dict) -> Path:
+    return WORK_ROOT / entry["slug"]
+
+
+# ---------------------------------------------------------------------------
+# rclone helpers (all Drive I/O goes through here)
+# ---------------------------------------------------------------------------
+
+
+def rclone(
+    args: list[str], capture: bool = False, check: bool = True
+) -> subprocess.CompletedProcess:
+    cmd = ["rclone", *args]
+    print(f"   $ {' '.join(cmd)}")
+    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+
+
+def drive_list_raw(remote: str) -> list[dict]:
+    """List Raw Leads as processable lists.
+
+    Accepts files by name extension OR MimeType: native CSV/XLSX uploaded to
+    Drive frequently carry no extension in their Name (e.g. "July 25,2026" with
+    MimeType text/csv), and Google Sheets are exported to CSV via
+    --drive-export-formats. Classifying by MimeType keeps the raw file's true
+    type so the downstream cleaner picks the right reader.
+    """
+    proc = rclone(
+        ["lsjson", f"{remote}:{DRIVE_RAW}", "--drive-export-formats", "csv"],
+        capture=True,
+    )
+    items = json.loads(proc.stdout or "[]")
+    lists = []
+    for item in items:
+        name = item.get("Name", "")
+        if item.get("IsDir"):
+            continue
+        low = name.lower()
+        mime = (item.get("MimeType") or "").lower()
+        if low.endswith(".csv"):
+            ext, title = ".csv", name.rsplit(".", 1)[0]
+        elif low.endswith(".xlsx"):
+            ext, title = ".xlsx", name.rsplit(".", 1)[0]
+        elif "csv" in mime or mime == "application/vnd.google-apps.spreadsheet":
+            # Native CSV without extension, or a Google Sheet exported as CSV.
+            ext, title = ".csv", name
+        elif "spreadsheetml" in mime or "ms-excel" in mime:
+            ext, title = ".xlsx", name
+        else:
+            continue
+        lists.append(
+            {"title": title, "leaf": name, "ext": ext, "mtime": item.get("ModTime", "")}
+        )
+    return lists
+
+
+def drive_download(remote: str, leaf: str, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    rclone(
+        ["copyto", f"{remote}:{DRIVE_RAW}/{leaf}", str(dest),
+         "--drive-export-formats", "csv"]
+    )
+
+
+def drive_upload(remote: str, local: Path, folder: str, title: str) -> None:
+    rclone(["copyto", str(local), f"{remote}:{folder}/{title}/{local.name}"])
+
+
+def drive_folder_csvs(remote: str, folder: str, title: str) -> list[dict]:
+    """CSV files inside remote:folder/title (empty list if the folder is absent)."""
+    proc = rclone(
+        ["lsjson", f"{remote}:{folder}/{title}"], capture=True, check=False
+    )
+    if proc.returncode != 0:
+        return []
+    try:
+        items = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError:
+        return []
+    return [
+        it
+        for it in items
+        if not it.get("IsDir") and str(it.get("Name", "")).lower().endswith(".csv")
+    ]
+
+
+def drive_download_file(remote: str, folder: str, title: str, name: str, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    rclone(["copyto", f"{remote}:{folder}/{title}/{name}", str(dest)])
+
+
+# ---------------------------------------------------------------------------
+# Stages
+# ---------------------------------------------------------------------------
+
+
+def stage_download(title: str, entry: dict, args) -> None:
+    workdir = workdir_for(entry)
+    raw = workdir / "raw.csv"
+    if entry.get("raw_csv") and (ROOT / entry["raw_csv"]).is_file():
+        stage_line("download", f"already downloaded -> {entry['raw_csv']} (skip)")
+        return
+    workdir.mkdir(parents=True, exist_ok=True)
+    if args.local_only:
+        if not entry.get("local_raw_source"):
+            raise RuntimeError(
+                "local-only mode: list has no local raw source registered "
+                "(use --raw/--title)"
+            )
+        src = ROOT / entry["local_raw_source"]
+        raw = workdir / ("raw" + src.suffix.lower())
+        shutil.copyfile(src, raw)
+        stage_line("download", f"[local-only] copied {src} -> {raw}")
+    else:
+        leaf = entry.get("drive_leaf") or f"{title}.csv"
+        ext = entry.get("drive_ext") or (Path(leaf).suffix.lower() or ".csv")
+        raw = workdir / ("raw" + ext)
+        drive_download(args.remote, leaf, raw)
+        stage_line("download", f"downloaded '{DRIVE_RAW}/{leaf}' -> {raw}")
+    entry["raw_csv"] = str(raw.relative_to(ROOT))
+    entry["stage"] = "downloaded"
+
+
+def stage_clean(title: str, entry: dict) -> None:
+    workdir = workdir_for(entry)
+    cleaned = workdir / f"{entry['slug']}-cleaned.csv"
+    if entry.get("cleaned_csv") and (ROOT / entry["cleaned_csv"]).is_file():
+        stage_line(
+            "clean",
+            f"already cleaned -> {entry['cleaned_csv']} "
+            f"({csv_row_count(ROOT / entry['cleaned_csv'])} rows, skip)",
+        )
+        return
+    raw = ROOT / entry["raw_csv"]
+    stage_line("clean", f"cleaning {raw.name} via clean_gmb_leads")
+    # clean_gmb_leads renames its output to <stem>-<count>-with-email.csv, so
+    # compute the produced path and move it to the stable per-list name.
+    out_stub = workdir / f"{entry['slug']}.csv"
+    df = clean_gmb_leads(raw, out_stub)
+    produced = count_named_path(
+        clean_campaign_stem(out_stub.stem), len(df), "with-email", workdir
+    )
+    shutil.move(str(produced), str(cleaned))
+    entry["cleaned_csv"] = str(cleaned.relative_to(ROOT))
+    entry["stage"] = "cleaned"
+    stage_line("clean", f"{len(df)} rows with email -> {cleaned}")
+
+
+def stage_upload_cleaned(title: str, entry: dict, args) -> None:
+    if args.local_only:
+        stage_line("upload cleaned", "[local-only] skipped")
+        return
+    if entry["uploads"].get("cleaned"):
+        stage_line("upload cleaned", "already uploaded (skip)")
+        return
+    drive_upload(args.remote, ROOT / entry["cleaned_csv"], DRIVE_CLEANED, title)
+    entry["uploads"]["cleaned"] = True
+    stage_line("upload cleaned", f"-> '{DRIVE_CLEANED}/{title}/'")
+
+
+def reoon_key_available() -> bool:
+    key = os.environ.get("REOON_API_KEY", "").strip()
+    return bool(key) and key != "your_api_key_here"
+
+
+def pending_verification(cleaned_csv: Path) -> int:
+    cache = load_json(REOON_CACHE_FILE, {})
+    emails = extract_emails_from_csv(cleaned_csv)
+    return sum(1 for e in emails if e not in cache)
+
+
+def stage_verify(title: str, entry: dict, args) -> None:
+    cleaned = ROOT / entry["cleaned_csv"]
+    workdir = workdir_for(entry)
+    verified = workdir / f"{entry['slug']}-verified.csv"
+    entry["verified_csv"] = str(verified.relative_to(ROOT))
+
+    pending = pending_verification(cleaned)
+    entry["pending_verification"] = pending
+
+    if args.no_verify:
+        stage_line("verify", f"skipped (--no-verify). Pending: {pending} emails")
+    elif not reoon_key_available():
+        stage_line(
+            "verify",
+            f"deferred: REOON_API_KEY not configured. Pending: {pending} emails",
+        )
+    elif pending == 0 and verified.is_file():
+        stage_line("verify", "all emails already verified (cache hit, skip)")
+    else:
+        stage_line("verify", f"{pending} pending — running Reoon (cap {args.verify_limit}/day)")
+        cmd = [
+            PY, str(ROOT / "scripts" / "verify_emails_reoon.py"),
+            str(cleaned), "-o", str(verified), "--limit", str(args.verify_limit),
+        ]
+        proc = subprocess.run(cmd, cwd=ROOT)
+        if proc.returncode != 0:
+            print(f"   WARNING: verify exited {proc.returncode}; continuing with existing verified list")
+
+    pending = pending_verification(cleaned)
+    entry["pending_verification"] = pending
+    entry["verify_complete"] = pending == 0
+    rows = csv_row_count(verified)
+    entry["stage"] = "verifying"
+    stage_line(
+        "verify",
+        f"verified list: {rows} rows kept | still unchecked: {pending}"
+        + ("" if pending == 0 else " — resume next run/day"),
+    )
+
+
+def stage_upload_verified(title: str, entry: dict, args) -> None:
+    verified = ROOT / entry["verified_csv"]
+    if not verified.is_file():
+        stage_line("upload verified", "no verified list yet (skip)")
+        return
+    if args.local_only:
+        stage_line("upload verified", "[local-only] skipped")
+        return
+    rows = csv_row_count(verified)
+    if rows == entry["uploads"].get("verified_rows"):
+        stage_line("upload verified", f"unchanged ({rows} rows, skip)")
+        return
+    drive_upload(args.remote, verified, DRIVE_VERIFIED, title)
+    entry["uploads"]["verified_rows"] = rows
+    stage_line("upload verified", f"{rows} rows -> '{DRIVE_VERIFIED}/{title}/'")
+
+
+# --- personalization delta ---------------------------------------------------
+
+
+def enriched_emails(enriched_csv: Path) -> set[str]:
+    if not enriched_csv.is_file():
+        return set()
+    _, rows = load_rows(enriched_csv)
+    return {e for e in (row_email(r) for r in rows) if e}
+
+
+def compute_delta(verified_csv: Path, enriched_csv: Path) -> tuple[list[str], list[dict]]:
+    fieldnames, rows = load_rows(verified_csv)
+    done = enriched_emails(enriched_csv)
+    seen: set[str] = set()
+    delta = []
+    for row in rows:
+        email = row_email(row)
+        if not email or email in done or email in seen:
+            continue
+        seen.add(email)
+        delta.append(row)
+    return fieldnames, delta
+
+
+def relocate_orphan_artifacts() -> None:
+    """Move stray per-batch enriched CSVs out of leads/enriched.
+
+    merge_enriched globs every mix-leads-batch-*-enriched.csv, so leftovers
+    from another list/manual run would contaminate this list's merge.
+    """
+    stray = sorted(ENRICHED_DIR.glob("mix-leads-batch-*-enriched.csv"))
+    if not stray:
+        return
+    dest = ORPHAN_DIR / run_stamp()
+    dest.mkdir(parents=True, exist_ok=True)
+    for path in stray:
+        shutil.move(str(path), str(dest / path.name))
+    print(
+        f"   WARNING: moved {len(stray)} stray batch-enriched file(s) to {dest} "
+        "(would have contaminated the merge)"
+    )
+
+
+def batch_artifact_paths(batch_ids: list[str], normalized_csv: Path) -> list[Path]:
+    paths: list[Path] = [MANIFEST, MANIFEST.with_suffix(MANIFEST.suffix + ".lock")]
+    paths.append(CAMPAIGNS_DIR / "mix-leads-normalized.json")
+    paths.append(COPY_DIR / "mix-leads-master-review.md")
+    paths.append(merged_output_path(normalized_csv))
+    for bid in batch_ids:
+        paths.extend(
+            [
+                CAMPAIGNS_DIR / f"mix-leads-batch-{bid}-research.json",
+                CAMPAIGNS_DIR / f"mix-leads-batch-{bid}-copy.json",
+                COPY_DIR / f"mix-leads-emails-batch-{bid}.json",
+                COPY_DIR / f"mix-leads-review-batch-{bid}.md",
+                ENRICHED_DIR / f"mix-leads-batch-{bid}-enriched.csv",
+            ]
+        )
+    return paths
+
+
+def merge_into_cumulative(batch_files: list[Path], cumulative: Path) -> tuple[int, int]:
+    """Append rows from batch enriched CSVs into the cumulative list (dedup by email)."""
+    fieldnames: list[str] = []
+    rows: list[dict] = []
+    seen: set[str] = set()
+    if cumulative.is_file():
+        fieldnames, rows = load_rows(cumulative)
+        seen = {e for e in (row_email(r) for r in rows) if e}
+    before = len(rows)
+    for path in batch_files:
+        fnames, batch_rows = load_rows(path)
+        for name in fnames:
+            if name not in fieldnames:
+                fieldnames.append(name)
+        for row in batch_rows:
+            email = row_email(row)
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            rows.append(row)
+    cumulative.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cumulative.with_suffix(".tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    tmp.replace(cumulative)
+    return len(rows) - before, len(rows)
+
+
+def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | None:
+    total_pass = 0
+    total_emails = 0
+    total_leads = 0
+    sections: list[str] = []
+    for bid in batch_ids:
+        emails_json = COPY_DIR / f"mix-leads-emails-batch-{bid}.json"
+        if emails_json.is_file():
+            data = json.loads(emails_json.read_text(encoding="utf-8"))
+            total_leads += len(data)
+            total_pass += sum(
+                1 for lead in data for step in lead["sequence"] if step["qa"]["pass"]
+            )
+            total_emails += sum(len(lead["sequence"]) for lead in data)
+        review_md = COPY_DIR / f"mix-leads-review-batch-{bid}.md"
+        if review_md.is_file():
+            sections.append(review_md.read_text(encoding="utf-8"))
+    if not sections and total_leads == 0:
+        return None
+    lines = [
+        f"# {entry['slug']} pipeline review — {stamp}",
+        f"Leads personalized this run: {total_leads}",
+        f"QA pass: {total_pass}/{total_emails}",
+        f"Cumulative enriched list: {entry.get('enriched_csv') or '-'}",
+        "",
+        "---",
+        "",
+    ]
+    out = COPY_DIR / f"{entry['slug']}-pipeline-review-{stamp}.md"
+    out.write_text("\n".join(lines) + "\n\n".join(sections), encoding="utf-8")
+    return out
+
+
+def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
+    workdir = workdir_for(entry)
+    verified = ROOT / entry["verified_csv"] if entry.get("verified_csv") else None
+    cumulative = workdir / f"{entry['slug']}-enriched.csv"
+    entry["enriched_csv"] = str(cumulative.relative_to(ROOT))
+
+    if verified is None or not verified.is_file() or csv_row_count(verified) == 0:
+        entry["pending_delta"] = 0
+        stage_line("personalize", "no verified leads yet — nothing to personalize")
+        return
+
+    # Resume a crashed/interrupted personalization run when the fixed manifest
+    # still points at this list's active delta source.
+    resume = False
+    active = entry.get("active_delta")
+    if active:
+        normalized_rel = active.get("normalized_csv", "")
+        manifest = load_json(MANIFEST, None)
+        if manifest and manifest.get("source") == normalized_rel and (ROOT / normalized_rel).is_file():
+            resume = True
+            batch_ids = [b["id"] for b in manifest["batches"]]
+            pending_batches = [b["id"] for b in manifest["batches"] if b.get("status") == "pending"]
+            entry["pending_delta"] = active.get("leads", 0)
+            stage_line(
+                "personalize",
+                f"resuming interrupted run: {len(pending_batches)}/{len(batch_ids)} batches pending",
+            )
+        else:
+            print("   WARNING: stale active_delta (manifest missing/mismatched) — recomputing delta")
+            entry["active_delta"] = None
+
+    if not resume:
+        fieldnames, delta = compute_delta(verified, cumulative)
+        entry["pending_delta"] = len(delta)
+        if not delta:
+            stage_line("personalize", "delta: 0 new verified leads — up to date")
+            return
+        stage_line(
+            "personalize",
+            f"delta: {len(delta)} new verified leads "
+            f"(verified {csv_row_count(verified)}, already enriched {csv_row_count(cumulative)})",
+        )
+
+        relocate_orphan_artifacts()
+        for old in workdir.glob("*-normalized.csv"):
+            old.unlink()
+        delta_csv = workdir / f"{entry['slug']}-delta.csv"
+        with delta_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(delta)
+
+        normalized_rows = normalize_leads(delta_csv)
+        normalized = normalized_output_path(delta_csv, len(normalized_rows))
+        manifest_data = create_manifest(normalized, MANIFEST, batch_size=args.batch_size)
+        batch_ids = [b["id"] for b in manifest_data["batches"]]
+        pending_batches = list(batch_ids)
+
+        entry["active_delta"] = {
+            "normalized_csv": str(normalized.relative_to(ROOT)),
+            "delta_csv": str(delta_csv.relative_to(ROOT)),
+            "started": now_iso(),
+            "leads": len(delta),
+        }
+        save_state(state)
+
+    if pending_batches:
+        workers = min(args.workers, max(1, len(pending_batches)))
+        stage_line(
+            "personalize",
+            f"running {len(pending_batches)} batch(es) x {args.batch_size} leads, "
+            f"{workers} parallel workers",
+        )
+        cmd = [
+            PY, str(ROOT / "scripts" / "personalization" / "run_batches.py"),
+            "--all-pending", "--workers", str(workers), "--merge",
+        ]
+        if args.no_render:
+            cmd.append("--no-render")
+        if args.no_linkedin:
+            cmd.append("--no-linkedin")
+        proc = subprocess.run(cmd, cwd=ROOT)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"run_batches exited {proc.returncode} — state kept, next run resumes this delta"
+            )
+
+    # Harvest: fold per-batch enriched CSVs into the stable cumulative list.
+    batch_files = [
+        ENRICHED_DIR / f"mix-leads-batch-{bid}-enriched.csv" for bid in batch_ids
+    ]
+    batch_files = [p for p in batch_files if p.is_file()]
+    added, total = merge_into_cumulative(batch_files, cumulative)
+    stage_line(
+        "personalize",
+        f"merged {len(batch_files)} batch file(s): +{added} leads -> {total} total in {cumulative.name}",
+    )
+
+    stamp = run_stamp()
+    review = write_list_review(entry, batch_ids, stamp)
+    if review:
+        entry.setdefault("reviews", []).append(str(review.relative_to(ROOT)))
+        stage_line("personalize", f"review -> {review.relative_to(ROOT)}")
+
+    # Archive run artifacts so the next list/run starts from a clean slate
+    # (fixed shared filenames would otherwise collide or contaminate merges).
+    archive = workdir / "artifacts" / stamp
+    archive.mkdir(parents=True, exist_ok=True)
+    normalized_for_paths = ROOT / entry["active_delta"]["normalized_csv"]
+    moved = 0
+    for path in batch_artifact_paths(batch_ids, normalized_for_paths):
+        if path.is_file():
+            shutil.move(str(path), str(archive / path.name))
+            moved += 1
+    for extra_name in ("delta_csv", "normalized_csv"):
+        rel = entry["active_delta"].get(extra_name)
+        if rel and (ROOT / rel).is_file():
+            shutil.move(str(ROOT / rel), str(archive / Path(rel).name))
+            moved += 1
+    stage_line("personalize", f"archived {moved} run artifact(s) -> {archive.relative_to(ROOT)}")
+
+    entry["active_delta"] = None
+    entry["personalized_emails"] = total
+    entry["pending_delta"] = 0
+    save_state(state)
+
+
+def stage_upload_personalized(title: str, entry: dict, args) -> None:
+    cumulative = ROOT / entry["enriched_csv"] if entry.get("enriched_csv") else None
+    if cumulative is None or not cumulative.is_file():
+        stage_line("upload personalized", "no enriched list yet (skip)")
+        return
+    if args.local_only:
+        stage_line("upload personalized", "[local-only] skipped")
+        return
+    rows = csv_row_count(cumulative)
+    if rows == entry["uploads"].get("enriched_rows"):
+        stage_line("upload personalized", f"unchanged ({rows} rows, skip)")
+        return
+    drive_upload(args.remote, cumulative, DRIVE_PERSONALIZED, title)
+    for rel in entry.get("reviews", [])[-1:]:
+        review = ROOT / rel
+        if review.is_file():
+            drive_upload(args.remote, review, DRIVE_PERSONALIZED, title)
+    entry["uploads"]["enriched_rows"] = rows
+    stage_line("upload personalized", f"{rows} rows -> '{DRIVE_PERSONALIZED}/{title}/'")
+
+
+def finalize_stage(title: str, entry: dict) -> None:
+    if entry.get("verify_complete") and entry.get("pending_delta") == 0:
+        entry["stage"] = "done"
+    elif entry.get("cleaned_csv"):
+        entry["stage"] = "verifying"
+    stage_line("status", f"list stage: {entry['stage']}")
+
+
+# ---------------------------------------------------------------------------
+# Reconcile with Drive (adopt already-completed manual/prior outputs)
+# ---------------------------------------------------------------------------
+
+# (stage key, Drive folder, state field that records the adopted local path)
+STAGE_FOLDERS = [
+    ("cleaned", DRIVE_CLEANED, "cleaned_csv"),
+    ("verified", DRIVE_VERIFIED, "verified_csv"),
+    ("enriched", DRIVE_PERSONALIZED, "enriched_csv"),
+]
+
+
+def adopt_authoritative_csv(
+    remote: str, folder: str, title: str, csvs: list[dict], dest: Path
+) -> int:
+    """Download the folder's CSV with the MOST data rows into ``dest``.
+
+    Handles arbitrary filenames (e.g. the user's ``mixed-*`` naming): when a
+    folder holds several CSVs, each candidate is downloaded, its data rows
+    counted with the shared csv_row_count helper (quoted multi-line bodies are
+    not overcounted), and the largest is kept as the baseline.
+    """
+    if len(csvs) == 1:
+        drive_download_file(remote, folder, title, csvs[0]["Name"], dest)
+        return csv_row_count(dest)
+    tmpdir = dest.parent / ".reconcile-tmp"
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    best_path: Path | None = None
+    best_rows = -1
+    try:
+        for it in csvs:
+            tmp = tmpdir / it["Name"]
+            drive_download_file(remote, folder, title, it["Name"], tmp)
+            rows = csv_row_count(tmp)
+            if rows > best_rows:
+                best_rows, best_path = rows, tmp
+        if best_path is not None:
+            shutil.move(str(best_path), str(dest))
+        return max(best_rows, 0)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def reconcile_list_with_drive(title: str, entry: dict, args, state: dict) -> None:
+    """Adopt already-completed Drive outputs as this list's baseline.
+
+    Inspects the Cleaned/Verified/Personalized folders for ``title`` and, for
+    each that already holds a CSV, downloads the authoritative file (most data
+    rows) into the working dir and derives the list's stage + counts from those
+    REAL Drive rows. A list whose enriched rows already cover the verified rows
+    is marked ``done`` and skipped so manual work is never redone. Idempotent:
+    once a list is ``done`` this is a no-op, and adopting the enriched baseline
+    keeps any future personalize delta correct.
+    """
+    if args.local_only or entry.get("stage") == "done":
+        return
+    workdir = workdir_for(entry)
+    workdir.mkdir(parents=True, exist_ok=True)
+    slug = entry["slug"]
+
+    found: dict[str, int] = {}
+    for key, folder, field in STAGE_FOLDERS:
+        csvs = drive_folder_csvs(args.remote, folder, title)
+        if not csvs:
+            continue
+        dest = workdir / f"{slug}-{key}.csv"
+        found[key] = adopt_authoritative_csv(args.remote, folder, title, csvs, dest)
+        entry[field] = str(dest.relative_to(ROOT))
+
+    if not found:
+        return  # genuinely new list — nothing on Drive yet
+
+    cleaned_n = found.get("cleaned")
+    verified_n = found.get("verified")
+    enriched_n = found.get("enriched")
+
+    # Mark stages already present in Drive as uploaded so we never push a
+    # duplicate (the upload stages also guard on these row counts / flag).
+    if cleaned_n is not None:
+        entry["uploads"]["cleaned"] = True
+    if verified_n is not None:
+        entry["uploads"]["verified_rows"] = verified_n
+    if enriched_n is not None:
+        entry["uploads"]["enriched_rows"] = enriched_n
+        entry["personalized_emails"] = enriched_n
+
+    if verified_n is not None and enriched_n is not None and enriched_n >= verified_n:
+        entry["stage"] = "done"
+        entry["verify_complete"] = True
+        entry["pending_verification"] = 0
+        entry["pending_delta"] = 0
+        entry["active_delta"] = None
+        detail = (
+            f"already DONE (cleaned {cleaned_n}, verified {verified_n}, "
+            f"enriched {enriched_n}) — skipping"
+        )
+    elif verified_n is not None:
+        entry["stage"] = "verifying"
+        entry["verify_complete"] = True
+        entry["pending_verification"] = 0
+        detail = (
+            f"verified baseline adopted (cleaned {cleaned_n}, verified "
+            f"{verified_n}, enriched {enriched_n or 0}) — resume at personalize"
+        )
+    else:
+        entry["stage"] = "cleaned"
+        detail = f"cleaned baseline adopted ({cleaned_n} rows) — resume at verify"
+
+    entry["last_run"] = now_iso()
+    stage_line("reconcile", f'"{title}": {detail}')
+    save_state(state)
+
+
+# ---------------------------------------------------------------------------
+# Report (regenerate + push to Drive)
+# ---------------------------------------------------------------------------
+
+
+def finalize_report(args) -> None:
+    """Regenerate Report.csv and push it to the Drive root. Never fatal."""
+    try:
+        subprocess.run(
+            [PY, str(ROOT / "scripts" / "pipeline" / "report.py")],
+            cwd=ROOT,
+            check=True,
+        )
+    except Exception as exc:  # noqa: BLE001 — reporting must not fail the run
+        print(f"   WARNING: could not regenerate Report.csv: {exc}")
+        return
+    if args.local_only:
+        return
+    report = ROOT / "Report.csv"
+    if not report.is_file():
+        print("   WARNING: Report.csv not found; skipping Drive upload")
+        return
+    # Stage a copy named "<sheet>.csv" so rclone's import titles the native
+    # Google Sheet accordingly (import strips the .csv basename). `copy` (not
+    # copyto) keeps the basename, and matching import/export formats update the
+    # SAME sheet in place on every run (stable ID, no duplicates). The local
+    # Report.csv is left untouched.
+    staged = report.with_name(f"{DRIVE_REPORT_SHEET}.csv")
+    try:
+        shutil.copyfile(report, staged)
+        rclone(
+            ["copy", str(staged), f"{args.remote}:",
+             "--drive-import-formats", "csv", "--drive-export-formats", "csv"]
+        )
+        print(f"   Report -> '{args.remote}:{DRIVE_REPORT_SHEET}' (native Google Sheet)")
+    except Exception as exc:  # noqa: BLE001 — Drive upload must not fail the run
+        print(f"   WARNING: {DRIVE_REPORT_SHEET} sheet upload to Drive failed: {exc}")
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Driver
+# ---------------------------------------------------------------------------
+
+
+def process_list(title: str, entry: dict, args, state: dict) -> None:
+    banner(f"LIST \"{title}\"  [{entry['slug']}]  stage: {entry['stage']}")
+    entry["last_run"] = now_iso()
+    stage_download(title, entry, args)
+    save_state(state)
+    stage_clean(title, entry)
+    save_state(state)
+    stage_upload_cleaned(title, entry, args)
+    save_state(state)
+    stage_verify(title, entry, args)
+    save_state(state)
+    stage_upload_verified(title, entry, args)
+    save_state(state)
+    stage_personalize(title, entry, args, state)
+    save_state(state)
+    stage_upload_personalized(title, entry, args)
+    finalize_stage(title, entry)
+    entry["last_error"] = None
+    save_state(state)
+
+
+def discover(state: dict, args) -> list[str]:
+    lists = state["lists"]
+    if args.raw:
+        raw = Path(args.raw)
+        if not raw.is_absolute():
+            raw = ROOT / raw
+        if not raw.is_file():
+            raise SystemExit(f"--raw file not found: {raw}")
+        title = args.title or raw.stem
+        if title not in lists:
+            lists[title] = new_entry(title)
+            print(f"Registered local list \"{title}\" from {raw}")
+        lists[title]["local_raw_source"] = str(raw.relative_to(ROOT)) if raw.is_relative_to(ROOT) else str(raw)
+
+    if not args.local_only:
+        print(f"Discovering raw lists in '{args.remote}:{DRIVE_RAW}' ...")
+        for item in drive_list_raw(args.remote):
+            title = item["title"]
+            if title not in lists:
+                lists[title] = new_entry(title, item["mtime"])
+                print(f"  new list: \"{title}\"")
+            lists[title]["drive_leaf"] = item["leaf"]
+            lists[title]["drive_ext"] = item.get("ext", ".csv")
+            lists[title].setdefault("drive_mtime", item["mtime"])
+
+    ordered = sorted(
+        lists.keys(),
+        key=lambda t: (lists[t].get("drive_mtime") or lists[t]["discovered_at"], t),
+    )
+    if args.list:
+        if args.list not in lists:
+            raise SystemExit(f"Unknown list: {args.list!r}. Known: {sorted(lists)}")
+        ordered = [args.list]
+    return ordered
+
+
+def print_summary(state: dict, titles: list[str], failures: dict[str, str]) -> None:
+    banner("PIPELINE SUMMARY")
+    for title in titles:
+        entry = state["lists"][title]
+        status = f"FAILED: {failures[title]}" if title in failures else entry["stage"]
+        print(
+            f"  \"{title}\" [{entry['slug']}] — {status} | "
+            f"verified rows: {csv_row_count(ROOT / entry['verified_csv']) if entry.get('verified_csv') else 0} | "
+            f"unchecked: {entry.get('pending_verification', '?')} | "
+            f"enriched: {entry.get('personalized_emails', 0)}"
+        )
+    if failures:
+        print(f"\n{len(failures)} list(s) failed — see errors above; others completed.")
+
+
+def print_status(state: dict) -> None:
+    if not state["lists"]:
+        print("No lists tracked yet (.pipeline/state.json empty).")
+        return
+    for title, entry in state["lists"].items():
+        print(
+            f"\"{title}\" [{entry['slug']}] stage={entry['stage']} "
+            f"verify_complete={entry.get('verify_complete')} "
+            f"pending_verification={entry.get('pending_verification')} "
+            f"enriched={entry.get('personalized_emails', 0)} "
+            f"last_run={entry.get('last_run')} "
+            f"last_error={entry.get('last_error')}"
+        )
+
+
+def main() -> None:
+    load_dotenv(ROOT / ".env")
+
+    parser = argparse.ArgumentParser(description="Drive lead pipeline orchestrator")
+    parser.add_argument("--remote", default="gdrive", help="rclone remote name (default: gdrive)")
+    parser.add_argument("--local-only", action="store_true",
+                        help="No Drive access: skip discovery and all uploads/downloads")
+    parser.add_argument("--raw", help="Register a local raw CSV/XLSX as a list (for local-only runs)")
+    parser.add_argument("--title", help="List title for --raw (default: file stem)")
+    parser.add_argument("--list", help="Process only this list title")
+    parser.add_argument("--no-verify", action="store_true",
+                        help="Skip the Reoon verification stage entirely")
+    parser.add_argument("--verify-limit", type=int,
+                        default=int(os.environ.get("REOON_DAILY_LIMIT", "500")),
+                        help="Daily Reoon verification cap (default: 500)")
+    parser.add_argument("--workers", type=int, default=10,
+                        help="Parallel personalization workers (default: 10)")
+    parser.add_argument("--batch-size", type=int, default=50,
+                        help="Leads per personalization batch (default: 50)")
+    parser.add_argument("--no-render", action="store_true",
+                        help="Pass --no-render to run_batches (skip headless browser)")
+    parser.add_argument("--no-linkedin", action="store_true",
+                        help="Pass --no-linkedin to run_batches (skip Apify)")
+    parser.add_argument("--status", action="store_true", help="Print state and exit")
+    args = parser.parse_args()
+
+    state = load_state()
+    if args.status:
+        print_status(state)
+        return
+
+    titles = discover(state, args)
+    save_state(state)
+    if not titles:
+        print("No lists to process.")
+        return
+
+    print(f"\nProcessing {len(titles)} list(s), oldest first: {titles}")
+    failures: dict[str, str] = {}
+    for title in titles:
+        entry = state["lists"][title]
+        # Adopt any already-completed Drive outputs before doing any work, so we
+        # never redo manual/prior runs. Non-fatal: a reconcile hiccup (e.g.
+        # transient Drive error) must not block processing.
+        try:
+            reconcile_list_with_drive(title, entry, args, state)
+        except Exception as exc:  # noqa: BLE001
+            print(f"   WARNING: reconcile failed for \"{title}\": {exc}")
+        if entry["stage"] == "done":
+            banner(f"LIST \"{title}\"  [{entry['slug']}]  stage: done (skip)")
+            continue
+        try:
+            process_list(title, entry, args, state)
+        except Exception as exc:  # noqa: BLE001 — one list must not block others
+            traceback.print_exc()
+            entry["last_error"] = f"{type(exc).__name__}: {exc}"
+            entry["stage"] = entry.get("stage") or "error"
+            failures[title] = entry["last_error"]
+            save_state(state)
+            print(f"\n!! LIST \"{title}\" FAILED — continuing with remaining lists")
+
+    # Refresh the local report and mirror it to Drive after every run.
+    finalize_report(args)
+
+    print_summary(state, [t for t in titles if state["lists"][t]["stage"] != "done" or t in failures] or titles, failures)
+    if failures:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

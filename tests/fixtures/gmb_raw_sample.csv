@@ -1,0 +1,11 @@
+Name,Email_From_WEBSITE,Website,First_category,Second_category,City,State,Country,Business_Status,Timezone,Phone_1,Linkedin_URL,Meta_Description,Average_rating,Reviews_count
+Alpha Detailing Co,owner@fixture-alpha.test,https://fixture-alpha.test,Car detailing service,,Austin,TX,US,OPERATIONAL,America/Chicago,+1 512 555 0101,,Premium auto detailing in Austin,4.8,120
+Bravo Realty Group,,https://fixture-bravo.test,Real estate agency,,Dallas,TX,US,OPERATIONAL,America/Chicago,+1 214 555 0102,,Dallas homes and listings,4.5,80
+Charlie Design Studio,info@example.com,https://fixture-charlie.test,Interior designer,,Houston,TX,US,OPERATIONAL,America/Chicago,+1 713 555 0103,,Interior design studio,4.9,45
+Delta Marine Sales,sales@fixture-delta.test,https://fixture-delta.test,Boat dealer,,Tampa,FL,US,Permanently closed,America/New_York,+1 813 555 0104,,Boats and yachts,4.2,60
+Alpha Detailing Co Duplicate,owner@fixture-alpha.test,https://fixture-alpha.test,Car detailing service,,Austin,TX,US,OPERATIONAL,America/Chicago,+1 512 555 0101,,Duplicate row same email,4.8,120
+Echo Med Spa,hello@fixture-echo.test | contact@fixture-echo.test,https://fixture-echo.test,Medical spa,,Miami,FL,US,OPERATIONAL,America/New_York,+1 305 555 0105,,Aesthetic treatments in Miami,4.7,210
+Foxtrot Events,team@fixture-foxtrot.test,https://fixture-foxtrot.test,Event planner,,Orlando,FL,US,OPERATIONAL,America/New_York,+1 407 555 0106,,Weddings and corporate events,4.6,95
+Golf Tech Solutions,dev@fixture-golf.test,https://fixture-golf.test,Software company,,Seattle,WA,US,OPERATIONAL,America/Los_Angeles,+1 206 555 0107,,Custom software development,4.9,30
+Hotel Luxe Retail,shop@fixture-hotel.test,https://fixture-hotel.test,Jewelry store,,New York,NY,US,OPERATIONAL,America/New_York,+1 212 555 0108,,Fine jewelry boutique,4.4,150
+India Creative Agency,studio@fixture-india.test,https://fixture-india.test,Marketing agency,,Chicago,IL,US,OPERATIONAL,America/Chicago,+1 312 555 0109,,Full service creative agency,4.8,75

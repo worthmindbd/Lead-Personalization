@@ -1,0 +1,10 @@
+# Python dependencies for the personalization pipeline.
+# Install into the local venv:  .venv/bin/pip install -r requirements.txt
+# Or install the library editable:  .venv/bin/pip install -e .
+
+# Core pipeline
+pandas==3.0.3
+openpyxl==3.1.5
+
+# Tests
+pytest>=8.0

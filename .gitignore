@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Node
+node_modules/
+
+# Playwright (keep the CLI config, ignore runtime state/snapshots)
+.playwright/*
+!.playwright/cli.config.json
+.playwright-cli/
+test-results/
+playwright-report/
+blob-report/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*~
+
+# Local secrets (never commit)
+.env
+.env.*
+!.env.example
+credentials.json
+
+# Reoon verification state (local cache + daily usage)
+.reoon/
+
+# Drive pipeline runtime state
+.pipeline/
+
+# Apify LinkedIn scrape cache
+.apify/
+
+# Batch rerun logs (regenerated per run)
+.rerun-logs/
+
+# Lead data & per-run outputs (never commit private/bulky lead data)
+/leads/
+/campaigns/
+/copy/
+/archive/
+
+# Generated progress-report artifacts (local; the source of truth is state.json)
+/Report.csv
+/Enrichment-Reports.csv

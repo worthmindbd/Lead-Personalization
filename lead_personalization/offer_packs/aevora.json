@@ -1,0 +1,353 @@
+{
+  "name": "aevora",
+  "version": 1,
+  "greeting": "Hi,",
+  "openers": {
+    "linkedin_posts": [
+      "Saw your recent LinkedIn post (\"{snippet}\"), so video is clearly already part of how you show up. The lever from here is usually the finish, not more posting.",
+      "Your recent LinkedIn post (\"{snippet}\") caught my eye. Teams posting that consistently usually gain the most from sharper finishing on the video side."
+    ],
+    "site_video": [
+      "Noticed your site already runs video, which puts you ahead of most {peer} in {loc}. The gap is usually the finish: pacing, hooks, and captions built for each platform.",
+      "Your site embeds video, and that is rarer than it should be for {peer} in {loc}. What separates a view from an inquiry is almost always the finishing, not the footage."
+    ],
+    "social_video": [
+      "Saw the {channel} link on your listing, but the site itself does not lead with video, and that is usually the first place buyers look.",
+      "You are set up on {channel}, yet the website carries no video. For {peer}, that is often the gap between a visit and an inquiry."
+    ],
+    "positioning": [
+      "Your site leads with \"{snippet}\", which is clear positioning that most {peer} never back up with finished video.",
+      "\"{snippet}\" is a strong promise on your homepage. Video is the fastest way to make it feel real, and most {peer} skip that step."
+    ],
+    "weak": [
+      "Most {peer} in {loc} sit on usable footage already: walkthroughs, events, phone clips that never become finished video.",
+      "Few {peer} in {loc} publish finished video, which makes it one of the cheapest ways to stand out right now."
+    ]
+  },
+  "segment_copy": {
+    "creative_marketing": {
+      "solutions": [
+        "We plug in as a white-label finishing bench: retention edits, motion graphics, and hook variants on your clients' footage, delivered under your name.",
+        "We handle overflow post-production on client footage, retention pacing, motion graphics, and A/B hook variants, so deliverables ship without adding headcount."
+      ],
+      "second_angle": [
+        "From one client master we typically deliver ten platform-native shorts plus twenty hook variations for paid testing.",
+        "Agencies use us to turn one master edit into a full short-form package: paced cuts, captions, and test-ready hooks."
+      ]
+    },
+    "real_estate": {
+      "solutions": [
+        "We finish walkthrough and event footage you already shoot: pacing, captions, and short reels cut from one master. No new shoot needed.",
+        "We turn existing walkthrough footage into listing reels and partner-facing cuts that match a premium market position."
+      ],
+      "second_angle": [
+        "One walkthrough typically becomes a hero tour plus a set of 15-30 second reels sized for Instagram and YouTube.",
+        "Listings with paced, hook-led reels tend to earn attention long before the floor plan gets read."
+      ]
+    },
+    "professional_services": {
+      "solutions": [
+        "We turn seminars, webinars, and partner events you already record into polished authority clips: clean cuts, captions, and motion graphics.",
+        "We take recorded talks and client education sessions and finish them into short, credible clips referral partners actually watch."
+      ],
+      "second_angle": [
+        "One recorded seminar usually yields a month of short authority clips without anyone on your team touching an editor.",
+        "Polished educational clips tend to do the trust-building that case results alone cannot."
+      ]
+    },
+    "medical_aesthetic": {
+      "solutions": [
+        "We finish provider and education footage you already capture: retention pacing, clean motion graphics, and platform-ready cuts.",
+        "We turn treatment-room and education footage into clear, professional explainers that help patients decide."
+      ],
+      "second_angle": [
+        "Clear procedure explainers tend to convert consult inquiries better than stock photos or static galleries.",
+        "One filming session usually becomes a full month of education clips once the finishing is handled."
+      ]
+    },
+    "software_tech": {
+      "solutions": [
+        "We turn screen recordings into motion-led product explainers with hook variants for paid and organic tests.",
+        "We finish demo captures into tight explainers where the UI motion makes the value obvious in the first ten seconds."
+      ],
+      "second_angle": [
+        "One demo capture typically becomes a launch explainer plus a set of feature clips for every channel.",
+        "Demos convert when the first ten seconds show the outcome, not the onboarding."
+      ]
+    },
+    "home_design": {
+      "solutions": [
+        "We finish site and portfolio footage you already have: cinematic pacing, color grade, and hook-led reels cut from one master.",
+        "We turn raw project footage into reels that look as considered as the finished build."
+      ],
+      "second_angle": [
+        "One site capture usually becomes a hero reveal plus platform-native reels for the same project.",
+        "High-ticket clients often judge the build quality by the reel quality before they ever call."
+      ]
+    },
+    "luxury_retail": {
+      "solutions": [
+        "We finish product footage into retention-first reels and ad variants built for testing, not catalog slideshows.",
+        "We turn supplied product footage into short, crave-led cuts sized for social and paid placements."
+      ],
+      "second_angle": [
+        "One product shoot typically becomes a season of reels plus ad variants for A/B testing.",
+        "Product video sells when it creates want in the first three seconds; slideshows rarely do."
+      ]
+    },
+    "marine_auto_lifestyle": {
+      "solutions": [
+        "We finish walkaround and showroom footage into cinematic reels that match the price point of the inventory.",
+        "We turn existing inventory footage into showcase cuts and ad hooks buyers at that ticket size expect."
+      ],
+      "second_angle": [
+        "One walkaround usually becomes a hero showcase plus short cuts for every listing channel.",
+        "High-ticket inventory moves faster when the video matches the sticker."
+      ]
+    },
+    "auto_services": {
+      "solutions": [
+        "We turn the before/after footage you already shoot into paced transformation reels: clean cuts, captions, and hooks built for each platform.",
+        "We finish shop footage into short before/after reels that show the transformation clearly, the format that pulls the most saves and shares."
+      ],
+      "second_angle": [
+        "One detail or wrap job usually becomes a reveal reel plus a set of short cuts sized for Instagram and TikTok.",
+        "Transformation reels tend to book more jobs than static gallery photos because the result lands in the first two seconds."
+      ]
+    },
+    "hospitality_events": {
+      "solutions": [
+        "We finish event footage into highlight reels and platform-native shorts while the moment still matters.",
+        "We turn raw event coverage into recap films and social cuts that extend an event's reach for weeks."
+      ],
+      "second_angle": [
+        "One event capture usually becomes a recap film plus a set of shorts for every channel.",
+        "Recap video finished within the week tends to outperform raw clips posted late."
+      ]
+    },
+    "low_fit": {
+      "solutions": [
+        "We finish footage you already have, phone clips, events, walkthroughs, with retention pacing and clean graphics.",
+        "We handle the edit and finishing on media you provide, so publishing video stops depending on spare time."
+      ],
+      "second_angle": [
+        "Most teams sit on more usable footage than they think; finishing is the missing step.",
+        "One batch of existing clips is usually enough for a month of finished posts."
+      ]
+    }
+  },
+  "cta_pools": {
+    "1": [
+      "Interested in a sample edit from one clip you already have?",
+      "Worth a short sample cut from your existing footage?",
+      "Want a sample edit matched to your style of work?"
+    ],
+    "2": [
+      "Want an example of how we'd structure that?",
+      "Open to one before/after example?",
+      "Useful if I send a short example matched to your niche?"
+    ],
+    "3": [
+      "When footage gets shot on your side, who finishes it, or does it wait?",
+      "Open to a ten-minute call to see if this maps to how you work?",
+      "Want one sample cut so you can judge the finish directly?"
+    ]
+  },
+  "closers": [
+    "Last note from me: most teams we work with didn't lack footage, they lacked finishing time.",
+    "Closing the loop here. Publishing finished video consistently is nearly always a bandwidth problem, not a content problem."
+  ],
+  "support_lines": [
+    "If it's backlog, we run as a quiet post-production bench on footage you supply.",
+    "If it's bandwidth, that's exactly the gap we fill: post-production only, on your media."
+  ],
+  "subject_templates": {
+    "home_design": {
+      "1": [
+        "{city} portfolio reel",
+        "{hook}",
+        "site walkthrough pacing"
+      ],
+      "2": [
+        "reels vs long walkthroughs",
+        "portfolio clip pacing",
+        "{city} project reels"
+      ],
+      "3": [
+        "post-build video workflow",
+        "project video backlog",
+        "after the build wraps"
+      ]
+    },
+    "real_estate": {
+      "1": [
+        "{city} listing media",
+        "{hook}",
+        "property tour pacing"
+      ],
+      "2": [
+        "agent reel variants",
+        "listing clip pacing",
+        "partner-facing reels"
+      ],
+      "3": [
+        "listing video workflow",
+        "walkthrough backlog",
+        "who finishes tours"
+      ]
+    },
+    "creative_marketing": {
+      "1": [
+        "client reel finish",
+        "{hook}",
+        "deliverable pacing"
+      ],
+      "2": [
+        "hook variants for ads",
+        "client cut turnaround",
+        "paid social clips"
+      ],
+      "3": [
+        "overflow edit workflow",
+        "white-label finishing",
+        "client video backlog"
+      ]
+    },
+    "professional_services": {
+      "1": [
+        "{city} authority clips",
+        "{hook}",
+        "seminar video finish"
+      ],
+      "2": [
+        "webinar clip pacing",
+        "education reel cuts",
+        "talking-head finish"
+      ],
+      "3": [
+        "content backlog question",
+        "who edits seminars",
+        "partner-facing video"
+      ]
+    },
+    "medical_aesthetic": {
+      "1": [
+        "procedure video finish",
+        "{hook}",
+        "patient education clips"
+      ],
+      "2": [
+        "education reel pacing",
+        "before/after clip cuts",
+        "provider video finish"
+      ],
+      "3": [
+        "patient video workflow",
+        "in-house vs outsourced",
+        "education clip backlog"
+      ]
+    },
+    "software_tech": {
+      "1": [
+        "product demo pacing",
+        "{hook}",
+        "ui walkthrough finish"
+      ],
+      "2": [
+        "demo hook variants",
+        "screen recording finish",
+        "feature clip cuts"
+      ],
+      "3": [
+        "demo video workflow",
+        "who finishes ui clips",
+        "launch video backlog"
+      ]
+    },
+    "luxury_retail": {
+      "1": [
+        "{city} product reels",
+        "{hook}",
+        "catalog vs crave video"
+      ],
+      "2": [
+        "dtc ad variants",
+        "product clip pacing",
+        "social reel finish"
+      ],
+      "3": [
+        "product video workflow",
+        "seasonal clip backlog",
+        "who finishes reels"
+      ]
+    },
+    "marine_auto_lifestyle": {
+      "1": [
+        "{city} showcase reel",
+        "{hook}",
+        "inventory walkthrough"
+      ],
+      "2": [
+        "walkaround clip pacing",
+        "showroom reel cuts",
+        "inventory ad hooks"
+      ],
+      "3": [
+        "inventory video workflow",
+        "lot footage backlog",
+        "who finishes tours"
+      ]
+    },
+    "auto_services": {
+      "1": [
+        "before/after reels",
+        "{hook}",
+        "{city} transformation reels"
+      ],
+      "2": [
+        "reveal clip pacing",
+        "detail reel cuts",
+        "wrap reveal reels"
+      ],
+      "3": [
+        "shop video workflow",
+        "before/after backlog",
+        "who edits your reels"
+      ]
+    },
+    "hospitality_events": {
+      "1": [
+        "{city} event recaps",
+        "{hook}",
+        "venue highlight reels"
+      ],
+      "2": [
+        "recap vs raw clips",
+        "social highlight cuts",
+        "event reel pacing"
+      ],
+      "3": [
+        "event video workflow",
+        "recap backlog",
+        "who finishes highlights"
+      ]
+    },
+    "low_fit": {
+      "1": [
+        "{city} video finish",
+        "{hook}",
+        "site clip pacing"
+      ],
+      "2": [
+        "short-form variants",
+        "second angle on clips",
+        "platform-native cuts"
+      ],
+      "3": [
+        "video workflow question",
+        "footage backlog",
+        "who handles finishing"
+      ]
+    }
+  }
+}
