@@ -5,7 +5,7 @@ description: Runs the automated Google Drive lead pipeline (Raw Leads -> Cleaned
 
 # Drive lead pipeline
 
-One command drives every lead list on Google Drive through reconcile → clean → verify → personalize, uploading each stage's output back to Drive. The orchestrator is fully resumable: run it daily and each list advances by up to 500 verified emails (Reoon free-tier cap), personalizing only the newly verified delta. Before touching a list it **reconciles with Drive** — it reads the real row counts already in `Cleaned/Verified/Personalized leads/<title>/` and skips (marks `done`) any list whose personalized output already covers its verified rows, so manual or prior work is never redone. At the end of every run it refreshes a native Google Sheet named **`Enrichment-Reports`** in the Drive root (in-place, idempotent).
+One command drives every lead list on Google Drive through reconcile → clean → verify → personalize, uploading each stage's output back to Drive. The orchestrator is fully resumable: run it daily and each list advances by up to 500 verified emails (Reoon free-tier cap), personalizing only the newly verified delta. Before touching a list it **reconciles with Drive** — it reads the real row counts already in `Cleaned/Verified/Personalized leads/<title>/` and skips (marks `done`) any list whose personalized output already covers its verified rows, so manual or prior work is never redone. At the end of every run it refreshes a native Google Sheet named **`Enrichment-Reports`** in the Drive root (in-place, idempotent) — updating only its own columns, so any column a human added to that sheet is preserved.
 
 ## How to run
 
@@ -47,6 +47,6 @@ Useful variants:
 - Working files: `leads/pipeline/<slug>/` (`raw.csv`, `<slug>-cleaned.csv`, `<slug>-verified.csv`, `<slug>-enriched.csv` cumulative, `artifacts/<run>/` archived batch outputs).
 - Reviews: `copy/<slug>-pipeline-review-<stamp>.md` (uploaded to `Personalized leads/<title>/` along with the enriched CSV).
 - Drive folders: `Raw Leads`, `Cleaned Leads`, `Verified Leads`, `Personalized leads` — each downstream stage gets a `<title>/` subfolder named after the raw file.
-- Report: `scripts/pipeline/report.py` writes `Report.csv` locally (read-only view of state) and, with `--upload` or automatically at the end of a run, imports it as the native Google Sheet `Enrichment-Reports` in the Drive root (updated in place — one sheet, stable ID).
+- Report: `scripts/pipeline/report.py` writes `Report.csv` locally (read-only view of state) and, with `--upload` or automatically at the end of a run, syncs the native Google Sheet `Enrichment-Reports` in the Drive root (one sheet, stable ID). The sync (`scripts/pipeline/sheets_sync.py`) edits cells via the Sheets API and writes **only columns A:J**; manually-added columns further right are never touched, rows are matched by `list_title` and never moved, and new lists are inserted above `TOTAL`. Use `--upload --dry-run` to preview the writes. It refuses to sync an empty report and leaves the sheet untouched on any API error — never tell it to fall back to an rclone CSV import.
 
 Never edit `.pipeline/state.json` by hand unless the user asks; never delete `leads/pipeline/` working directories for lists that are not `done`.

@@ -69,7 +69,8 @@ DRIVE_RAW = "Raw Leads"
 DRIVE_CLEANED = "Cleaned Leads"
 DRIVE_VERIFIED = "Verified Leads"
 DRIVE_PERSONALIZED = "Personalized leads"
-DRIVE_REPORT_SHEET = "Enrichment-Reports"
+# The report sheet's name lives in report.py (DRIVE_SHEET_NAME) — the single
+# owner of everything to do with publishing the report.
 
 
 # ---------------------------------------------------------------------------
@@ -799,39 +800,19 @@ def reconcile_list_with_drive(title: str, entry: dict, args, state: dict) -> Non
 
 
 def finalize_report(args) -> None:
-    """Regenerate Report.csv and push it to the Drive root. Never fatal."""
+    """Regenerate Report.csv and sync the Drive sheet. Never fatal.
+
+    Delegates entirely to report.py so there is one upload implementation. That
+    script updates only the pipeline's own columns of the Enrichment-Reports
+    Google Sheet in place, leaving any hand-maintained columns intact.
+    """
+    cmd = [PY, str(ROOT / "scripts" / "pipeline" / "report.py")]
+    if not args.local_only:
+        cmd += ["--upload", "--remote", args.remote]
     try:
-        subprocess.run(
-            [PY, str(ROOT / "scripts" / "pipeline" / "report.py")],
-            cwd=ROOT,
-            check=True,
-        )
+        subprocess.run(cmd, cwd=ROOT, check=True)
     except Exception as exc:  # noqa: BLE001 — reporting must not fail the run
-        print(f"   WARNING: could not regenerate Report.csv: {exc}")
-        return
-    if args.local_only:
-        return
-    report = ROOT / "Report.csv"
-    if not report.is_file():
-        print("   WARNING: Report.csv not found; skipping Drive upload")
-        return
-    # Stage a copy named "<sheet>.csv" so rclone's import titles the native
-    # Google Sheet accordingly (import strips the .csv basename). `copy` (not
-    # copyto) keeps the basename, and matching import/export formats update the
-    # SAME sheet in place on every run (stable ID, no duplicates). The local
-    # Report.csv is left untouched.
-    staged = report.with_name(f"{DRIVE_REPORT_SHEET}.csv")
-    try:
-        shutil.copyfile(report, staged)
-        rclone(
-            ["copy", str(staged), f"{args.remote}:",
-             "--drive-import-formats", "csv", "--drive-export-formats", "csv"]
-        )
-        print(f"   Report -> '{args.remote}:{DRIVE_REPORT_SHEET}' (native Google Sheet)")
-    except Exception as exc:  # noqa: BLE001 — Drive upload must not fail the run
-        print(f"   WARNING: {DRIVE_REPORT_SHEET} sheet upload to Drive failed: {exc}")
-    finally:
-        staged.unlink(missing_ok=True)
+        print(f"   WARNING: could not regenerate/sync the report: {exc}")
 
 
 # ---------------------------------------------------------------------------

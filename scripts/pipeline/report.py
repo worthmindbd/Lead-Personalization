@@ -18,19 +18,18 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
-import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import sheets_sync
+
 ROOT = Path(__file__).resolve().parents[2]
 STATE_FILE = ROOT / ".pipeline" / "state.json"
 WORK_ROOT = ROOT / "leads" / "pipeline"
 REPORT_FILE = ROOT / "Report.csv"
-# Title of the native Google Sheet the report is imported to in the Drive root.
+# Title of the native Google Sheet in the Drive root that --upload keeps in sync.
 DRIVE_SHEET_NAME = "Enrichment-Reports"
 
 COLUMNS = [
@@ -215,51 +214,20 @@ def print_table(rows: list[dict]) -> None:
         print("  ".join(str(row[c]).ljust(widths[c]) for c in COLUMNS))
 
 
-def resolve_rclone() -> str:
-    """Locate the rclone binary the same way run_pipeline.py reaches it.
+def upload_to_drive(rows: list[dict], remote: str, dry_run: bool = False) -> None:
+    """Update the ``Enrichment-Reports`` Google Sheet in place from ``rows``.
 
-    Prefers $RCLONE_BIN, then ~/.local/bin/rclone, then PATH.
+    Non-fatal. Writes only the pipeline's own columns (A..J) via the Sheets
+    API, matching rows by ``list_title`` and inserting new lists above TOTAL,
+    so hand-maintained columns further right survive the update. On any failure
+    the sheet is left exactly as it was — there is no CSV-import fallback,
+    because that is what used to overwrite those columns.
     """
-    candidates = [
-        os.environ.get("RCLONE_BIN"),
-        str(Path.home() / ".local" / "bin" / "rclone"),
-        "rclone",
-    ]
-    for cand in candidates:
-        if not cand:
-            continue
-        if os.sep in cand:
-            if Path(cand).is_file():
-                return cand
-        else:
-            found = shutil.which(cand)
-            if found:
-                return found
-    return "rclone"
-
-
-def upload_to_drive(remote: str) -> None:
-    """Import the report as the native Google Sheet ``remote:Enrichment-Reports``.
-
-    Non-fatal. Stages a copy named ``Enrichment-Reports.csv`` so rclone's Drive
-    import titles the sheet accordingly (``copy`` keeps the basename, import
-    strips the ``.csv``). Matching import/export formats make repeat runs update
-    the SAME sheet in place (stable ID, exactly one sheet) rather than creating
-    duplicates. The local Report.csv is left untouched.
-    """
-    staged = REPORT_FILE.with_name(f"{DRIVE_SHEET_NAME}.csv")
-    cmd = [
-        resolve_rclone(), "copy", str(staged), f"{remote}:",
-        "--drive-import-formats", "csv", "--drive-export-formats", "csv",
-    ]
     try:
-        shutil.copyfile(REPORT_FILE, staged)
-        subprocess.run(cmd, check=True)
-        print(f"Uploaded {REPORT_FILE.name} -> {remote}:{DRIVE_SHEET_NAME} (native Google Sheet)")
-    except Exception as exc:  # noqa: BLE001 — report upload must not crash callers
-        print(f"WARNING: {DRIVE_SHEET_NAME} sheet upload to Drive failed: {exc}", file=sys.stderr)
-    finally:
-        staged.unlink(missing_ok=True)
+        print(sheets_sync.sync(rows, COLUMNS, DRIVE_SHEET_NAME, remote, dry_run))
+    except sheets_sync.SheetsSyncError as exc:
+        print(f"WARNING: {DRIVE_SHEET_NAME} sheet not updated: {exc}", file=sys.stderr)
+        print("         The sheet was left untouched.", file=sys.stderr)
 
 
 def main() -> None:
@@ -267,10 +235,17 @@ def main() -> None:
     parser.add_argument(
         "--upload",
         action="store_true",
-        help="Also push the generated Report.csv to the Drive root",
+        help=f"Also update the '{DRIVE_SHEET_NAME}' Google Sheet in place",
     )
     parser.add_argument(
-        "--remote", default="gdrive", help="rclone remote name (default: gdrive)"
+        "--remote",
+        default="gdrive",
+        help="rclone remote whose stored Drive credentials to reuse (default: gdrive)",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --upload, print the planned sheet writes without applying them",
     )
     args = parser.parse_args()
 
@@ -283,7 +258,8 @@ def main() -> None:
     print(f"Wrote:      {REPORT_FILE.relative_to(ROOT)}\n")
     print_table(all_rows)
     if args.upload:
-        upload_to_drive(args.remote)
+        print()
+        upload_to_drive(all_rows, args.remote, args.dry_run)
 
 
 if __name__ == "__main__":

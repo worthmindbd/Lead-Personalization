@@ -113,11 +113,16 @@ After all lists are processed it regenerates the report and imports it to Drive 
 ### Progress report → "Enrichment-Reports" Google Sheet
 
 ```bash
-.venv/bin/python scripts/pipeline/report.py            # write local Report.csv
-.venv/bin/python scripts/pipeline/report.py --upload   # also refresh the Drive Sheet
+.venv/bin/python scripts/pipeline/report.py                      # write local Report.csv
+.venv/bin/python scripts/pipeline/report.py --upload             # also sync the Drive Sheet
+.venv/bin/python scripts/pipeline/report.py --upload --dry-run   # show the planned cell writes
 ```
 
-`report.py` is **read-only** with respect to pipeline state: it reads `.pipeline/state.json` and the per-list stage CSVs and writes `Report.csv` at the project root (one row per list plus a TOTAL), safe to run anytime — even mid-run. With `--upload` (and automatically at the end of every `run_pipeline.py` run) it imports the CSV as a **native Google Sheet named `Enrichment-Reports`** in the Drive root, updating that one sheet **in place** each run (stable file ID / shareable link, no duplicates).
+`report.py` is **read-only** with respect to pipeline state: it reads `.pipeline/state.json` and the per-list stage CSVs and writes `Report.csv` at the project root (one row per list plus a TOTAL), safe to run anytime — even mid-run. With `--upload` (and automatically at the end of every `run_pipeline.py` run) it updates the **native Google Sheet named `Enrichment-Reports`** in the Drive root (stable file ID / shareable link, no duplicates).
+
+**Your own columns are safe.** The sync edits individual cells through the Google Sheets API rather than re-importing a CSV over the sheet, and it only ever writes the pipeline's own columns (`A:J`). Anything you add to the right of them — a campaign-tracking checkbox, notes, formulas — is never written to. Rows are matched by `list_title` and **never moved**; a newly discovered list is *inserted* directly above `TOTAL`, so Sheets shifts your annotations down with the row they belong to. Lists you have in the sheet but that are no longer in pipeline state are left alone, never deleted.
+
+Two safeguards: a report with no list rows (e.g. `.pipeline/state.json` missing) refuses to sync rather than blanking the sheet, and any API failure leaves the sheet untouched — there is deliberately no CSV-import fallback. Credentials are reused from the existing `gdrive` rclone remote, so there is no second OAuth setup.
 
 ### rclone (Google Drive) setup
 
