@@ -344,6 +344,38 @@ def pending_verification(cleaned_csv: Path) -> int:
     return sum(1 for e in emails if e not in cache)
 
 
+def seed_cache_from_verified(verified_csv: Path) -> int:
+    """Record emails from an existing verified list as already-checked.
+
+    The Reoon cache is the record of which addresses have been spent credits
+    on. If it is lost (wiped state dir, fresh clone) while the verified CSVs
+    survive on Drive, every passed email would be re-verified at full cost.
+    Every address in a verified list cleared a KEEP status, so reseeding it as
+    ``safe`` restores that knowledge.
+
+    Only fills gaps — a real Reoon result already in the cache always wins.
+    Addresses that were checked and *rejected* are unrecoverable this way and
+    will be re-checked; that costs credits but never yields a wrong answer.
+
+    Returns the number of entries added.
+    """
+    if not verified_csv.is_file():
+        return 0
+    try:
+        emails = extract_emails_from_csv(verified_csv)
+    except SystemExit:  # no recognisable email column — nothing to reseed
+        return 0
+    cache = load_json(REOON_CACHE_FILE, {})
+    added = 0
+    for email in emails:
+        if email not in cache:
+            cache[email] = {"status": "safe", "source": "reseeded_from_verified_csv"}
+            added += 1
+    if added:
+        save_json_atomic(REOON_CACHE_FILE, cache)  # creates .reoon/ if needed
+    return added
+
+
 def stage_verify(title: str, entry: dict, args) -> None:
     cleaned = ROOT / entry["cleaned_csv"]
     workdir = workdir_for(entry)
@@ -767,7 +799,31 @@ def reconcile_list_with_drive(title: str, entry: dict, args, state: dict) -> Non
         entry["uploads"]["enriched_rows"] = enriched_n
         entry["personalized_emails"] = enriched_n
 
-    if verified_n is not None and enriched_n is not None and enriched_n >= verified_n:
+    # pending_verification() consults the Reoon cache. If that cache was lost,
+    # every already-passed email looks unchecked and would burn quota again, so
+    # reseed it from the verified rows just adopted from Drive.
+    if verified_n is not None:
+        seed_cache_from_verified(workdir / f"{slug}-verified.csv")
+
+    # How many cleaned emails have genuinely never been checked. This is the
+    # only sound completeness test: comparing enriched against verified says
+    # nothing about the cleaned emails that were never verified in the first
+    # place, and treating those lists as done silently abandons the backlog.
+    pending = (
+        pending_verification(workdir / f"{slug}-cleaned.csv")
+        if cleaned_n is not None
+        else None
+    )
+    if pending is not None:
+        entry["pending_verification"] = pending
+        entry["verify_complete"] = pending == 0
+
+    verify_done = pending == 0 if pending is not None else verified_n is not None
+    personalize_done = (
+        verified_n is not None and enriched_n is not None and enriched_n >= verified_n
+    )
+
+    if verify_done and personalize_done:
         entry["stage"] = "done"
         entry["verify_complete"] = True
         entry["pending_verification"] = 0
@@ -779,11 +835,14 @@ def reconcile_list_with_drive(title: str, entry: dict, args, state: dict) -> Non
         )
     elif verified_n is not None:
         entry["stage"] = "verifying"
-        entry["verify_complete"] = True
-        entry["pending_verification"] = 0
         detail = (
             f"verified baseline adopted (cleaned {cleaned_n}, verified "
-            f"{verified_n}, enriched {enriched_n or 0}) — resume at personalize"
+            f"{verified_n}, enriched {enriched_n or 0})"
+            + (
+                f" — {pending} email(s) still unchecked, resuming verify"
+                if pending
+                else " — resume at personalize"
+            )
         )
     else:
         entry["stage"] = "cleaned"
@@ -877,6 +936,36 @@ def discover(state: dict, args) -> list[str]:
     return ordered
 
 
+def work_priority(entry: dict) -> int:
+    """Rank a list by how much of it is already underway (lower runs first).
+
+    Verification is capped per day and the budget is shared, so whichever list
+    verifies first is the one that advances. Draining lists that are already
+    part-way through therefore has to come before starting a freshly uploaded
+    one, or a steady trickle of new uploads keeps the older backlog starved.
+    """
+    stage = entry.get("stage")
+    if stage == "done":
+        return 2  # nothing to do; ordering among these is immaterial
+    if stage in ("discovered", "error", None) and not entry.get("cleaned_csv"):
+        return 1  # never processed — a brand-new upload
+    return 0  # started but unfinished
+
+
+def prioritise(titles: list[str], lists: dict, args) -> list[str]:
+    """Unfinished lists first, then new uploads; oldest first within each."""
+    if args.list:
+        return titles
+    return sorted(
+        titles,
+        key=lambda t: (
+            work_priority(lists[t]),
+            lists[t].get("drive_mtime") or lists[t]["discovered_at"],
+            t,
+        ),
+    )
+
+
 def print_summary(state: dict, titles: list[str], failures: dict[str, str]) -> None:
     banner("PIPELINE SUMMARY")
     for title in titles:
@@ -944,17 +1033,23 @@ def main() -> None:
         print("No lists to process.")
         return
 
-    print(f"\nProcessing {len(titles)} list(s), oldest first: {titles}")
+    # Adopt already-completed Drive outputs for EVERY list before processing any
+    # of them, so we never redo manual/prior work — and so the ordering below
+    # can see each list's true remaining work. Non-fatal: a reconcile hiccup
+    # (e.g. transient Drive error) must not block processing.
+    print(f"\nReconciling {len(titles)} list(s) with Drive ...")
+    for title in titles:
+        try:
+            reconcile_list_with_drive(title, state["lists"][title], args, state)
+        except Exception as exc:  # noqa: BLE001
+            print(f"   WARNING: reconcile failed for \"{title}\": {exc}")
+    save_state(state)
+
+    titles = prioritise(titles, state["lists"], args)
+    print(f"\nProcessing {len(titles)} list(s), unfinished first: {titles}")
     failures: dict[str, str] = {}
     for title in titles:
         entry = state["lists"][title]
-        # Adopt any already-completed Drive outputs before doing any work, so we
-        # never redo manual/prior runs. Non-fatal: a reconcile hiccup (e.g.
-        # transient Drive error) must not block processing.
-        try:
-            reconcile_list_with_drive(title, entry, args, state)
-        except Exception as exc:  # noqa: BLE001
-            print(f"   WARNING: reconcile failed for \"{title}\": {exc}")
         if entry["stage"] == "done":
             banner(f"LIST \"{title}\"  [{entry['slug']}]  stage: done (skip)")
             continue
