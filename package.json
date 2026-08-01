@@ -4,7 +4,7 @@
   "description": "B2B cold email personalization workspace. Researches leads from CSV, writes hyper-personalized 3-email sequences, and exports enriched files for any ESP.",
   "private": true,
   "scripts": {
-    "playwright:install": "playwright-cli install-browser chrome-for-testing",
+    "playwright:install": "playwright install chromium",
     "playwright:open": "playwright-cli open",
     "playwright": "playwright-cli"
   },
