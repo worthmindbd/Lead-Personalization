@@ -8,7 +8,6 @@ MACRO_SEGMENTS = {
     "creative_marketing": {
         "label": "Creative / Marketing",
         "pillar": "Pillar 1/2",
-        "default_fit": "high",
         "angle": "White-label post-production, hook variants, client campaign fulfillment",
         "value_lens": "save_time",
         "forbidden_angles": ["listing tours", "property walkthroughs", "medical procedure demos"],
@@ -17,7 +16,6 @@ MACRO_SEGMENTS = {
     "real_estate": {
         "label": "Real Estate",
         "pillar": "Pillar 3",
-        "default_fit": "high",
         "angle": "Listing tours, agent authority, partner reels from supplied footage",
         "value_lens": "make_money",
         "forbidden_angles": ["SaaS UI explainers", "medical before/after"],
@@ -26,7 +24,6 @@ MACRO_SEGMENTS = {
     "professional_services": {
         "label": "Professional Services",
         "pillar": "Pillar 3",
-        "default_fit": "medium",
         "angle": "Trust and authority edits from seminars, client education, partner outreach",
         "value_lens": "save_time",
         "forbidden_angles": ["listing tours", "DTC product crave ads", "hook A/B for Meta"],
@@ -35,7 +32,6 @@ MACRO_SEGMENTS = {
     "medical_aesthetic": {
         "label": "Medical / Aesthetic",
         "pillar": "Pillar 3",
-        "default_fit": "medium",
         "angle": "Procedure explainers and patient education from client-supplied footage",
         "value_lens": "make_money",
         "forbidden_angles": ["listing tours", "SaaS demos", "agency white-label"],
@@ -44,7 +40,6 @@ MACRO_SEGMENTS = {
     "software_tech": {
         "label": "Software / Tech",
         "pillar": "Pillar 4",
-        "default_fit": "high",
         "angle": "UI motion explainers and product demo finishing from screen recordings",
         "value_lens": "make_money",
         "forbidden_angles": ["listing tours", "medical procedure content"],
@@ -53,7 +48,6 @@ MACRO_SEGMENTS = {
     "home_design": {
         "label": "Home / Design / Construction",
         "pillar": "Pillar 3",
-        "default_fit": "medium",
         "angle": "Portfolio and property showcase pacing from supplied project footage",
         "value_lens": "make_money",
         "forbidden_angles": ["SaaS UI motion", "legal authority VSLs"],
@@ -62,7 +56,6 @@ MACRO_SEGMENTS = {
     "luxury_retail": {
         "label": "Luxury Retail",
         "pillar": "Pillar 2/4",
-        "default_fit": "medium",
         "angle": "Product crave pacing and DTC ad variants from supplied product footage",
         "value_lens": "make_money",
         "forbidden_angles": ["listing tours", "legal seminars"],
@@ -71,7 +64,6 @@ MACRO_SEGMENTS = {
     "marine_auto_lifestyle": {
         "label": "Marine / Auto / Lifestyle",
         "pillar": "Mixed",
-        "default_fit": "low",
         "angle": "Luxury showcase edits when high-ticket positioning is clear",
         "value_lens": "make_money",
         "forbidden_angles": ["generic fleet rental pitches", "mass-market used car ads"],
@@ -80,7 +72,6 @@ MACRO_SEGMENTS = {
     "auto_services": {
         "label": "Auto Services / Detailing / Wraps",
         "pillar": "Pillar 2",
-        "default_fit": "medium",
         "angle": "Before/after transformation reels from supplied shop footage",
         "value_lens": "make_money",
         "forbidden_angles": ["inventory listing tours", "medical procedure content"],
@@ -89,7 +80,6 @@ MACRO_SEGMENTS = {
     "hospitality_events": {
         "label": "Hospitality / Events",
         "pillar": "Pillar 1",
-        "default_fit": "low",
         "angle": "Event recap and brand film finishing from supplied event footage",
         "value_lens": "save_time",
         "forbidden_angles": ["SaaS demos", "medical content"],
@@ -98,7 +88,6 @@ MACRO_SEGMENTS = {
     "low_fit": {
         "label": "Low Fit",
         "pillar": "—",
-        "default_fit": "skip",
         "angle": "Minimal authority-only if overridden; otherwise deprioritize",
         "value_lens": "save_time",
         "forbidden_angles": ["hard sell on any pillar"],
@@ -270,17 +259,6 @@ BUSINESS_NAME_MARKERS = re.compile(
 
 def segment_for_category(category: str) -> str:
     return CATEGORY_TO_SEGMENT.get((category or "").strip(), "low_fit")
-
-
-def fit_score_for(segment: str, category: str) -> str:
-    meta = MACRO_SEGMENTS.get(segment, MACRO_SEGMENTS["low_fit"])
-    base = meta["default_fit"]
-    if segment == "marine_auto_lifestyle":
-        luxury_cats = {"Yacht broker", "Yacht club", "Bugatti dealer", "Boat dealer"}
-        if category in luxury_cats:
-            return "medium"
-        return "low"
-    return base
 
 
 def looks_like_business(name: str) -> bool:

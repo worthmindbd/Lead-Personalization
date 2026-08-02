@@ -9,8 +9,11 @@ which artifacts get written, and the CLI flags.
 
 This file used to carry a full copy of both halves — ~370 lines of copy pools
 and ~320 of research — kept honest by a parity test for the first and by nothing
-at all for the second. Leads with ``fit_score == "skip"`` are still excluded
-from copy entirely.
+at all for the second.
+
+Every lead in the batch gets a sequence. There is no fit or quality gate here,
+and the docstring used to claim one ("leads with fit_score == skip are excluded
+from copy entirely") that no code ever implemented.
 """
 
 from __future__ import annotations

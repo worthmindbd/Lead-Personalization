@@ -29,7 +29,6 @@ def fake_row(segment: str, email: str) -> dict:
         "City": "Austin",
         "State": "Texas",
         "aevora_segment": segment,
-        "fit_score": "medium",
         "Youtube_URL": "https://youtube.com/@lakeview",
         "Instagram_URL": "",
     }

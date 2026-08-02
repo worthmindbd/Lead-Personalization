@@ -4,6 +4,28 @@ B2B cold email personalization workspace. Researches leads from CSV, writes hype
 
 The copy engine is deterministic: emails are assembled from versioned **offer packs** (variant pools + subject templates) selected by a stable per-lead hash, driven by research signals. There is **no LLM call per lead**.
 
+## The one rule: a mailable address is never dropped
+
+The pipeline makes **no judgement about lead quality**. There is no fit score, no
+tiering, no "good prospect" filter. If an address can receive mail, it gets a
+sequence.
+
+A lead is only ever removed for a reason that makes the email itself worthless:
+
+| Removed | Why |
+|---|---|
+| No email on the row | nothing to send to |
+| Placeholder domain (`example.com`, `*.example`) | not a real inbox |
+| Duplicate address | the same person, already on another row |
+| Beyond 2 per company domain | five people at one firm reads as a blast, not outreach (free providers exempt) |
+| Rejected by Reoon | the provider says it will bounce |
+
+Nothing else. Permanently-closed listings, unusual industries, competitors,
+thin websites — all kept. `aevora_segment` picks *which* angle a lead's copy
+takes, including the `low_fit` fallback for unmapped categories; it never
+decides whether a lead is worth writing to. `tests/test_no_lead_is_dropped.py`
+counts rows out of a batch so that stays true.
+
 ## Setup (one-time)
 
 ```bash
@@ -37,7 +59,9 @@ cp .env.example .env   # then fill in your keys
 
 All of it used to exist twice. `scripts/personalization/` carried its own `qa.py`, `sanitize.py`, `segments.py`, `subjects.py`, ~370 lines of inline variant pools, a second research stack, a second Apify scraper, and a second normalizer. A parity test held the copy half together; nothing at all held the rest. The duplicates are gone — `process_batch.py` went 573 → 233 lines, `linkedin_apify.py` 230 → 76, `normalize_leads.py` 276 → 137, 1,079 lines down to 446 — and `tests/test_one_engine.py` fails if a second copy reappears.
 
-Collapsing them fixed two real bugs the duplication had been hiding: the library's LinkedIn cache locks and writes atomically where the script's did not (with `--workers 8`, 7 of 8 concurrent results were being lost), and `pipeline.normalize_row` now sets `fit_score`, which it never had — the column `process_batch` reads to skip competitors, worth 740 of 3,045 rows on a real list.
+Collapsing them fixed a real bug the duplication had been hiding: the library's LinkedIn cache locks and writes atomically where the script's did not (with `--workers 8`, 7 of 8 concurrent results were being lost).
+
+It also surfaced a claim that was never true. This section used to say `process_batch` skipped competitors by reading a `fit_score` column, worth 740 of 3,045 rows. It did not — the selection was always `[all_rows[i] for i in batch["rows"]]`, unfiltered, in every commit. The 740 was the count of rows *labelled* skip, not rows removed; the real output shows July 6 personalizing 2,381 of 2,381 verified, July 7 2,142 of 2,142. `fit_score` has been deleted, and `tests/test_no_lead_is_dropped.py` now counts rows out of a batch so a gate cannot reappear undetected.
 
 Run the tests:
 
@@ -148,8 +172,8 @@ Configure it with **your own Google OAuth client ID/secret** — rclone has reti
 ## Pipeline (mixed lead lists)
 
 ```bash
-# 0. Clean a raw Google Maps export (keeps rows with a real email, trims
-#    columns, drops closed businesses, caps 2 leads per business domain)
+# 0. Clean a raw Google Maps export (keeps every row with a real email, trims
+#    columns, caps 2 leads per business domain)
 python3 scripts/personalization/clean_gmb_leads.py leads/raw-export.xlsx
 
 # 1. Normalize columns and derive segments

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Clean Google Maps lead exports.
 
-First pass (default): full source file → keep every row with a real email.
-Open/closed status is kept, not filtered. Dedupe + drop placeholder emails only.
+A lead with a real email is kept. The only removals are addresses that cannot
+be mailed — missing, placeholder, or already present on another row — plus the
+per-domain cap, so one firm does not receive five copies of the same sequence.
+Open/closed status is reported, never filtered on.
 
-Optional flags apply secondary filters (business-rich countries, geo mismatch, closed).
+Optional flags apply secondary filters (business-rich countries, geo mismatch).
 """
 
 from __future__ import annotations
@@ -163,7 +165,6 @@ def clean_gmb_leads(
     output: Path,
     *,
     business_rich_only: bool = False,
-    drop_closed: bool = True,
     drop_geo_mismatch: bool = False,
     require_website: bool = False,
     max_per_domain: int = 2,
@@ -188,11 +189,6 @@ def clean_gmb_leads(
         before = len(df)
         df = df[df["Website"].fillna("").astype(str).str.strip().astype(bool)].copy()
         stats["removed_no_website"] = before - len(df)
-
-    if drop_closed:
-        before = len(df)
-        df = df[~df["Business_Status"].fillna("").str.lower().isin(CLOSED_STATUSES)].copy()
-        stats["removed_closed_business"] = before - len(df)
 
     if business_rich_only:
         before = len(df)
@@ -243,6 +239,8 @@ def clean_gmb_leads(
         if key.startswith("removed_"):
             print(f"  {key}: {val:,}")
     if "Business_Status" in df.columns:
+        # Reported, never filtered on: a closed listing with a working inbox is
+        # still a person who can reply.
         closed_kept = df["Business_Status"].fillna("").str.lower().isin(CLOSED_STATUSES).sum()
         print(f"  closed_businesses_kept: {closed_kept:,}")
     print(f"Output: {output}")
@@ -260,10 +258,6 @@ def main() -> None:
     parser.add_argument(
         "--business-rich", action="store_true",
         help="Secondary filter: keep business-rich countries only",
-    )
-    parser.add_argument(
-        "--keep-closed", action="store_true",
-        help="Keep permanently closed businesses (dropped by default)",
     )
     parser.add_argument(
         "--max-per-domain", type=int, default=2,
@@ -291,7 +285,6 @@ def main() -> None:
         source,
         output,
         business_rich_only=args.business_rich,
-        drop_closed=not args.keep_closed,
         drop_geo_mismatch=args.drop_geo_mismatch,
         require_website=args.require_website,
         max_per_domain=args.max_per_domain,

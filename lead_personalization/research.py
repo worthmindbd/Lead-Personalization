@@ -297,7 +297,6 @@ def research_lead(
         "facebook": (row.get("Facebook_URL") or "").strip(),
         "outreach_tier": "company",
         "aevora_segment": row.get("aevora_segment", ""),
-        "fit_score": row.get("fit_score", ""),
         "research_signal": signal,
         "research_notes": notes,
         "signal_strength": strength,

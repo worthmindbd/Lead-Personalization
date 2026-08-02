@@ -32,7 +32,6 @@ from lead_personalization.segments import (  # noqa: E402,F401
     BUSINESS_NAME_MARKERS,
     CATEGORY_TO_SEGMENT,
     GENERIC_EMAIL_PREFIXES,
-    fit_score_for,
     resolve_outreach_tier as outreach_tier,
     segment_for_category,
 )

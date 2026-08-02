@@ -20,6 +20,9 @@ from personalization import artifacts  # noqa: E402
 DELAYS = [0, 3, 7]
 
 # Internal-only columns that should not appear in the enriched export.
+# `fit_score` is no longer produced, but normalized CSVs written before it was
+# removed still carry the column — without it here, those files would leak a
+# dead lead-quality score into new exports.
 DROP_COLUMNS = {"row_index", "fit_score"}
 
 
@@ -92,7 +95,6 @@ def build_batch(
                 "title": item.get("title", ""),
                 "outreach_tier": item.get("outreach_tier", ""),
                 "aevora_segment": item.get("aevora_segment", ""),
-                "fit_score": item.get("fit_score", ""),
             },
             "channels": {
                 "website": item.get("website", ""),
@@ -155,7 +157,7 @@ def build_batch(
         lines.append(f"## {name} — {l['company']}")
         lines.append(
             f"**Email:** {l['email']} | **Tier:** {l['outreach_tier']} | "
-            f"**Segment:** {l['aevora_segment']} | **Fit:** {l['fit_score']}"
+            f"**Segment:** {l['aevora_segment']}"
         )
         lines.append(f"**Signal:** {lead['signal']} ({lead.get('signal_strength', '')})")
         lines.append(f"**Variant:** {lead.get('copy_variant', '')}")

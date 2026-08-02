@@ -78,7 +78,10 @@ Maps `First_category` from mixed CSVs to Aevora outreach strategy. Used with [`s
 ### low_fit
 - **Check:** website only
 - **Value lens:** save time at most
-- **Avoid:** hard sell; flag in `fit_score: skip`
+- **Avoid:** hard sell
+- **Not a demotion:** the fallback for unmapped categories, with its own copy
+  pool and subject templates like every other segment. These leads are
+  personalized and sent like any other.
 
 ## Category mapping
 
