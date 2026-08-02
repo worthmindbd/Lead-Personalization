@@ -10,8 +10,12 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from personalization import artifacts  # noqa: E402
+
 DEFAULT_SOURCE = ROOT / "leads" / "all-leads-with-email-normalized.csv"
-DEFAULT_MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
+DEFAULT_MANIFEST = artifacts.manifest_path()
 BATCH_SIZE = 50
 
 
@@ -53,7 +57,11 @@ def create_manifest(
             }
         )
 
+    # Recorded, not just implied by the filename: every downstream artifact
+    # name is built from it, and a manifest that has been moved or renamed
+    # should still name its own files.
     manifest = {
+        "prefix": artifacts.prefix_from_manifest_name(manifest_path),
         "source": str(source.relative_to(ROOT)),
         "batch_size": batch_size,
         "total_leads": len(rows),
@@ -68,11 +76,21 @@ def create_manifest(
     return manifest
 
 
+def _resolve(raw: str) -> Path:
+    path = Path(raw)
+    return path if path.is_absolute() else ROOT / path
+
+
 def main() -> None:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCE
-    if not source.is_absolute():
-        source = ROOT / source
-    create_manifest(source)
+    """Usage: create_batch_manifest.py [source.csv] [manifest.json]
+
+    The manifest path is worth passing: its filename becomes the prefix on
+    every artifact the run writes, so two lists processed side by side need one
+    manifest each. Omitted, it is the shared ``mix-leads`` manifest.
+    """
+    source = _resolve(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_SOURCE
+    manifest_path = _resolve(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_MANIFEST
+    create_manifest(source, manifest_path)
 
 
 if __name__ == "__main__":

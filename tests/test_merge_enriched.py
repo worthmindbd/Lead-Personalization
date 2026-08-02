@@ -22,9 +22,9 @@ from personalization.manifest_lock import manifest_lock, update_batch_status  # 
 from personalization.merge_enriched import merge_enriched  # noqa: E402
 
 
-def batch_csv(directory: Path, batch: str, rows: list[dict]) -> Path:
+def batch_csv(directory: Path, batch: str, rows: list[dict], prefix: str = "mix-leads") -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"mix-leads-batch-{batch}-enriched.csv"
+    path = directory / f"{prefix}-batch-{batch}-enriched.csv"
     with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["primary_email", "company"])
         writer.writeheader()
@@ -32,22 +32,35 @@ def batch_csv(directory: Path, batch: str, rows: list[dict]) -> Path:
     return path
 
 
-def manifest_file(tmp_path: Path, ids=("001", "002")) -> Path:
-    path = tmp_path / "manifest.json"
+def manifest_file(tmp_path: Path, prefix: str = "mix-leads", ids=("001", "002")) -> Path:
+    path = tmp_path / f"{prefix}-batch-manifest.json"
     path.write_text(
-        json.dumps({"batches": [{"id": b, "status": "pending"} for b in ids]}),
+        json.dumps({"prefix": prefix,
+                    "batches": [{"id": b, "status": "pending"} for b in ids]}),
         encoding="utf-8",
     )
     return path
 
 
+@pytest.fixture(params=["mix-leads", "july-6"], ids=["default-prefix", "list-prefix"])
+def prefix(request):
+    """Run every merge behaviour under both names.
+
+    ``mix-leads`` is the historical default a hand-run merge still falls back
+    to; ``july-6`` is what the pipeline actually passes now. These tests used to
+    hardcode the default, so they would have passed just as happily if the
+    prefix were ignored entirely.
+    """
+    return request.param
+
+
 @pytest.fixture
-def two_batches(tmp_path):
+def two_batches(tmp_path, prefix):
     enriched = tmp_path / "enriched"
     batch_csv(enriched, "001", [{"primary_email": "a@x.com", "company": "A"},
-                                {"primary_email": "b@x.com", "company": "B"}])
+                                {"primary_email": "b@x.com", "company": "B"}], prefix)
     batch_csv(enriched, "002", [{"primary_email": "b@x.com", "company": "B again"},
-                                {"primary_email": "c@x.com", "company": "C"}])
+                                {"primary_email": "c@x.com", "company": "C"}], prefix)
     return enriched
 
 
@@ -56,10 +69,10 @@ def two_batches(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_batches_merge_and_dedupe_by_address(two_batches, tmp_path):
+def test_batches_merge_and_dedupe_by_address(two_batches, prefix, tmp_path):
     out = tmp_path / "merged.csv"
 
-    assert merge_enriched(two_batches, out, tmp_path / "absent.json") == 3
+    assert merge_enriched(two_batches, out, tmp_path / "absent.json", prefix=prefix) == 3
 
     with out.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
@@ -77,8 +90,9 @@ def test_no_batch_files_is_an_error_not_an_empty_file(tmp_path):
     assert not (tmp_path / "merged.csv").exists()
 
 
-def test_a_missing_manifest_is_not_fatal(two_batches, tmp_path):
-    assert merge_enriched(two_batches, tmp_path / "merged.csv", tmp_path / "nope.json") == 3
+def test_a_missing_manifest_is_not_fatal(two_batches, prefix, tmp_path):
+    out = tmp_path / "merged.csv"
+    assert merge_enriched(two_batches, out, tmp_path / "nope.json", prefix=prefix) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -86,11 +100,13 @@ def test_a_missing_manifest_is_not_fatal(two_batches, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_merge_records_its_output_in_the_manifest(two_batches, tmp_path, monkeypatch):
+def test_merge_records_its_output_in_the_manifest(two_batches, prefix, tmp_path, monkeypatch):
+    """No prefix argument here on purpose: the merge must take it from the
+    manifest it is about to update."""
     import personalization.merge_enriched as me
 
     monkeypatch.setattr(me, "ROOT", tmp_path)
-    path = manifest_file(tmp_path)
+    path = manifest_file(tmp_path, prefix)
 
     me.merge_enriched(two_batches, tmp_path / "merged.csv", path)
 
@@ -100,7 +116,7 @@ def test_merge_records_its_output_in_the_manifest(two_batches, tmp_path, monkeyp
     assert [b["status"] for b in manifest["batches"]] == ["pending", "pending"]
 
 
-def test_the_manifest_write_waits_for_the_lock(two_batches, tmp_path, monkeypatch):
+def test_the_manifest_write_waits_for_the_lock(two_batches, prefix, tmp_path, monkeypatch):
     """A status flip that lands mid-merge must survive the merge's write.
 
     Without the lock the merge reads the manifest, a worker writes "done", and
@@ -109,7 +125,7 @@ def test_the_manifest_write_waits_for_the_lock(two_batches, tmp_path, monkeypatc
     import personalization.merge_enriched as me
 
     monkeypatch.setattr(me, "ROOT", tmp_path)
-    path = manifest_file(tmp_path)
+    path = manifest_file(tmp_path, prefix)
 
     merging = threading.Thread(
         target=me.merge_enriched, args=(two_batches, tmp_path / "merged.csv", path)

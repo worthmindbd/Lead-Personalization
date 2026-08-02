@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from personalization import artifacts  # noqa: E402
 from personalization.qa import qa, sequence_issues  # noqa: E402
 
 DELAYS = [0, 3, 7]
@@ -32,6 +33,7 @@ def build_batch(
     batch_id: str,
     enriched_dir: Path | None = None,
     copy_dir: Path | None = None,
+    prefix: str = artifacts.DEFAULT_PREFIX,
 ) -> dict:
     enriched_dir = enriched_dir or ROOT / "leads" / "enriched"
     copy_dir = copy_dir or ROOT / "copy"
@@ -126,9 +128,9 @@ def build_batch(
         out_rows.append(row)
         json_out.append(lead_json)
 
-    out_csv = enriched_dir / f"mix-leads-batch-{batch_id}-enriched.csv"
-    out_json_path = copy_dir / f"mix-leads-emails-batch-{batch_id}.json"
-    out_md = copy_dir / f"mix-leads-review-batch-{batch_id}.md"
+    out_csv = artifacts.enriched_csv(prefix, batch_id, enriched_dir)
+    out_json_path = artifacts.emails_json(prefix, batch_id, copy_dir)
+    out_md = artifacts.review_md(prefix, batch_id, copy_dir)
 
     fieldnames = [k for k in out_rows[0].keys() if k not in DROP_COLUMNS]
     with out_csv.open("w", newline="", encoding="utf-8") as handle:
@@ -139,7 +141,7 @@ def build_batch(
     out_json_path.write_text(json.dumps(json_out, indent=2), encoding="utf-8")
 
     lines = [
-        f"# Mix leads review batch {batch_id} ({len(json_out)} leads)",
+        f"# {prefix} review batch {batch_id} ({len(json_out)} leads)",
         f"Date: {date.today().isoformat()}",
         "Sender: Aevora Media (OFFER.md, BRAND_IDENTITY.md)",
         "",
@@ -188,6 +190,11 @@ def main() -> None:
     parser.add_argument("--research", required=True)
     parser.add_argument("--copy", required=True)
     parser.add_argument("--batch-id", required=True)
+    parser.add_argument(
+        "--prefix",
+        default=artifacts.DEFAULT_PREFIX,
+        help="Names the output files; the pipeline passes the list slug",
+    )
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -200,7 +207,7 @@ def main() -> None:
     if not copy.is_absolute():
         copy = ROOT / copy
 
-    result = build_batch(source, research, copy, args.batch_id)
+    result = build_batch(source, research, copy, args.batch_id, prefix=args.prefix)
     print(f"Batch {result['batch_id']}: QA {result['qa_pass']}/{result['qa_total']}")
     print(f"  {result['csv']}")
     print(f"  {result['json']}")

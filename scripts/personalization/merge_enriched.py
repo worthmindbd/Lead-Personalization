@@ -11,21 +11,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from personalization import artifacts  # noqa: E402
 from personalization.manifest_lock import manifest_lock  # noqa: E402
 
 ENRICHED_DIR = ROOT / "leads" / "enriched"
 DEFAULT_OUT = ROOT / "leads" / "all-leads-with-email-enriched.csv"
-MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
+MANIFEST = artifacts.manifest_path()
 
 
 def merge_enriched(
     enriched_dir: Path = ENRICHED_DIR,
     output_path: Path = DEFAULT_OUT,
     manifest_path: Path = MANIFEST,
+    prefix: str | None = None,
 ) -> int:
-    files = sorted(enriched_dir.glob("mix-leads-batch-*-enriched.csv"))
+    # Scoped to this run's prefix. The glob used to be a flat
+    # mix-leads-batch-*, which is how another list's leftovers in
+    # leads/enriched/ could be folded into this list's merged output — and why
+    # the pipeline had to sweep the directory before every run.
+    pattern = artifacts.enriched_glob(prefix or artifacts.prefix_for(manifest_path))
+    files = sorted(enriched_dir.glob(pattern))
     if not files:
-        raise SystemExit(f"No enriched batch files in {enriched_dir}")
+        raise SystemExit(f"No enriched batch files matching {pattern} in {enriched_dir}")
 
     all_rows = []
     fieldnames = None

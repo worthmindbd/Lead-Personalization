@@ -27,7 +27,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from personalization import linkedin_apify  # noqa: E402
+from personalization import artifacts, linkedin_apify  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
 from personalization.manifest_lock import update_batch_status  # noqa: E402
 from personalization.merge_enriched import merge_enriched  # noqa: E402
@@ -761,8 +761,17 @@ def fix_sequence(
 # ---------------------------------------------------------------------------
 
 
-def merged_output_path(source: Path) -> Path:
-    """Stable single merged file per campaign: leads/<campaign>-enriched.csv."""
+def merged_output_path(source: Path, prefix: str | None = None) -> Path:
+    """Stable single merged file per run: leads/<prefix>-enriched.csv.
+
+    With a prefix this is one file per list. Without one it falls back to the
+    old source-stem derivation, which truncates at the first digit — so
+    ``july-6-delta-normalized``, ``july-7-...`` and ``july-8-...`` all resolved
+    to ``leads/july-enriched.csv``. Callers that know their prefix should pass
+    it; the pipeline does.
+    """
+    if prefix:
+        return artifacts.merged_csv(prefix)
     stem = source.stem.lower().replace("-38k", "")
     for suffix in ("-with-email", "-cleaned", "-verified", "-valid", "-normalized"):
         if stem.endswith(suffix):
@@ -789,6 +798,12 @@ def process_batch(
     batch = next((b for b in manifest["batches"] if b["id"] == batch_id), None)
     if not batch:
         raise SystemExit(f"Batch {batch_id} not found in manifest")
+
+    # Everything this run writes is named after the manifest's prefix, so two
+    # lists processing at once never touch the same file.
+    prefix = artifacts.clean_prefix(
+        manifest.get("prefix") or artifacts.prefix_from_manifest_name(manifest_path)
+    )
 
     with source.open(newline="", encoding="utf-8") as handle:
         all_rows = list(csv.DictReader(handle))
@@ -830,8 +845,9 @@ def process_batch(
         research_out.append(item)
         copy_out[item["email"]] = [[s, b] for s, b in seq]
 
-    research_path = campaigns_dir / f"mix-leads-batch-{batch_id}-research.json"
-    copy_path = campaigns_dir / f"mix-leads-batch-{batch_id}-copy.json"
+    research_path = artifacts.research_json(prefix, batch_id, campaigns_dir)
+    copy_path = artifacts.copy_json(prefix, batch_id, campaigns_dir)
+    campaigns_dir.mkdir(parents=True, exist_ok=True)
     research_path.write_text(json.dumps(research_out, indent=2), encoding="utf-8")
     copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
 
@@ -850,12 +866,12 @@ def process_batch(
         return result
 
     if not skip_build:
-        build_result = build_batch(source, research_path, copy_path, batch_id)
+        build_result = build_batch(source, research_path, copy_path, batch_id, prefix=prefix)
         update_batch_status(manifest_path, batch_id, "exported")
         result.update(build_result)
 
         if auto_merge:
-            merged_path = merged_output_path(source)
+            merged_path = merged_output_path(source, prefix)
             merged_rows = merge_enriched(output_path=merged_path, manifest_path=manifest_path)
             result["merged"] = str(merged_path)
             result["merged_rows"] = merged_rows
@@ -868,7 +884,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-id", required=True)
     parser.add_argument("--source", default="leads/all-leads-with-email-normalized.csv")
-    parser.add_argument("--manifest", default="campaigns/mix-leads-batch-manifest.json")
+    parser.add_argument("--manifest", default=str(artifacts.manifest_path().relative_to(ROOT)))
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument(
         "--no-render",

@@ -14,11 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from personalization import artifacts  # noqa: E402
 from personalization import process_batch as pb  # noqa: E402
 from personalization.merge_enriched import merge_enriched  # noqa: E402
 from personalization.process_batch import merged_output_path, process_batch  # noqa: E402
 
-MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
+MANIFEST = artifacts.manifest_path()
 
 
 def _source_from_manifest() -> Path:
@@ -34,8 +35,21 @@ def _source_from_manifest() -> Path:
 SOURCE = _source_from_manifest()
 
 
+def use_manifest(path: Path) -> None:
+    """Point this module at one list's manifest.
+
+    MANIFEST and SOURCE are module globals read by the worker, so switching
+    lists means rebinding both — SOURCE is derived from the manifest and would
+    otherwise still name the previous list's CSV.
+    """
+    global MANIFEST, SOURCE
+    MANIFEST = path
+    SOURCE = _source_from_manifest()
+
+
 def update_master_review(manifest_path: Path) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    prefix = artifacts.prefix_for(manifest_path)
     copy_dir = ROOT / "copy"
     total_pass = 0
     total_emails = 0
@@ -43,7 +57,7 @@ def update_master_review(manifest_path: Path) -> None:
 
     for batch in manifest["batches"]:
         bid = batch["id"]
-        json_path = copy_dir / f"mix-leads-emails-batch-{bid}.json"
+        json_path = artifacts.emails_json(prefix, bid, copy_dir)
         if not json_path.exists():
             continue
         data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -54,7 +68,7 @@ def update_master_review(manifest_path: Path) -> None:
         batch_summaries.append((bid, len(data), bp, bt, batch.get("status", "")))
 
     lines = [
-        "# Mix leads master review",
+        f"# {prefix} master review",
         f"Date: {date.today().isoformat()}",
         f"Total leads processed: {sum(s[1] for s in batch_summaries)}",
         f"QA pass rate: {total_pass}/{total_emails}",
@@ -65,7 +79,8 @@ def update_master_review(manifest_path: Path) -> None:
     for bid, leads, bp, bt, status in batch_summaries:
         lines.append(f"| {bid} | {leads} | {bp}/{bt} | {status} |")
 
-    out = ROOT / "copy" / "mix-leads-master-review.md"
+    out = artifacts.master_review_md(prefix, copy_dir)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Master review -> {out}")
 
@@ -174,7 +189,12 @@ def run_batches(
             raise SystemExit(f"{len(failures)} batch(es) failed: {failed_ids}")
 
     if merge or not auto_merge:
-        merge_enriched(output_path=merged_output_path(SOURCE), manifest_path=MANIFEST)
+        prefix = artifacts.prefix_for(MANIFEST)
+        merge_enriched(
+            output_path=merged_output_path(SOURCE, prefix),
+            manifest_path=MANIFEST,
+            prefix=prefix,
+        )
         update_master_review(MANIFEST)
 
 
@@ -187,6 +207,11 @@ def main() -> None:
     parser.add_argument("--merge", action="store_true")
     parser.add_argument("--workers", type=int, default=1, help="Parallel batch workers (default: 1)")
     parser.add_argument(
+        "--manifest",
+        help="Manifest to run; names every artifact this run writes "
+        "(default: campaigns/mix-leads-batch-manifest.json)",
+    )
+    parser.add_argument(
         "--no-render",
         action="store_true",
         help="Disable the headless-browser fallback for JS-rendered sites",
@@ -197,6 +222,10 @@ def main() -> None:
         help="Disable Apify LinkedIn recent-post enrichment",
     )
     args = parser.parse_args()
+
+    if args.manifest:
+        path = Path(args.manifest)
+        use_manifest(path if path.is_absolute() else ROOT / path)
 
     if args.no_render:
         pb.RENDER_FALLBACK = False

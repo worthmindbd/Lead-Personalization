@@ -109,6 +109,7 @@ After all lists are processed it regenerates the report and imports it to Drive 
 - **Contacted index:** `.pipeline/contacted.json` — every address that has been personalized, mapped to the list that got there first. Drive lists overlap, so each list's delta is checked against this index and an address already sequenced on another list is skipped (the run prints how many). Rebuild or inspect it with `run_pipeline.py --backfill-contacted`; the first run after an upgrade seeds it automatically from the existing enriched CSVs.
 - **Rejected tombstones:** `.reoon/rejected.json` — addresses known to have been checked but with no cached result, so a reset cannot re-spend credits on them. Reoon results (rejections included) live in the cache; this file only covers runs whose cache was later lost, where a reseed could restore the passing addresses but not the rejects. Entries are marked `inferred_rejected` so an inference is never confused with a real answer. Recover them with `run_pipeline.py --backfill-rejected` (previews by default; add `--apply`), and spend credits on them anyway with `verify_emails_reoon.py --recheck-rejected`.
 - **Working files:** `leads/pipeline/<slug>/` (slug = sanitized title, e.g. `July 25,2026` → `july-25-2026`) holds `raw.*`, `<slug>-cleaned.csv`, `<slug>-verified.csv`, `<slug>-enriched.csv` (cumulative), and archived batch artifacts.
+- **Artifact names are per list:** every file a personalization run writes into the shared `campaigns/`, `copy/`, and `leads/enriched/` directories is prefixed with the list's slug — `campaigns/july-25-2026-batch-manifest.json`, `leads/enriched/july-25-2026-batch-001-enriched.csv`, and so on (all spelled in one place, `scripts/personalization/artifacts.py`). The merge globs only its own prefix. These names used to be a fixed `mix-leads-*` for every list, which meant another list's leftover batches could be folded into this list's merged output, and only one list could personalize at a time. The run still archives its artifacts into the list's workdir afterwards — not to avoid collisions between lists, but because the *next delta on the same list* renumbers from batch 001 and would otherwise overwrite this run's review and copy JSON.
 - **Drive folders:** `Raw Leads`, `Cleaned Leads`, `Verified Leads`, `Personalized leads` — each downstream stage writes a `<title>/` subfolder named after the raw file.
 - **Daily cadence:** because verification is capped at 500/day, large lists (thousands of leads) clear over several days — run the command daily and each list advances by up to 500 verified emails until `done`.
 
@@ -149,14 +150,23 @@ python3 scripts/personalization/clean_gmb_leads.py leads/raw-export.xlsx
 python3 scripts/personalization/normalize_leads.py leads/my-list.csv
 
 # 2. Create batch manifest (50 leads/batch, stratified by segment)
-python3 scripts/personalization/create_batch_manifest.py
+#    Second argument is optional; its filename prefixes every artifact below.
+python3 scripts/personalization/create_batch_manifest.py leads/my-list-normalized.csv \
+    campaigns/my-list-batch-manifest.json
 
 # 3. Process batches
-python3 scripts/personalization/run_batches.py --from 001 --to 010 --merge
+python3 scripts/personalization/run_batches.py --manifest campaigns/my-list-batch-manifest.json \
+    --from 001 --to 010 --merge
 
 # 4. Merge into single enriched CSV
 python3 scripts/personalization/merge_enriched.py
 ```
+
+The manifest names every artifact the run writes, so two lists can be processed
+side by side by giving each its own: their research JSON, copy JSON, reviews,
+enriched batches, and merged CSVs stay disjoint, and each merge globs only its
+own batches. Omit `--manifest` and everything falls back to the shared
+historical `mix-leads-*` names.
 
 For agent-driven runs, the skill handles research and copy; scripts handle normalization, batching, QA, and export.
 

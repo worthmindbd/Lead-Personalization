@@ -261,9 +261,76 @@ Left as-is: `compute_delta` was already covered for suppression by
 
 `campaigns/mix-leads-batch-manifest.json` and the fixed `mix-leads-batch-*`
 filenames are global, which is why `relocate_orphan_artifacts`
-(`run_pipeline.py:460`) and the archive step exist and why only one list can
+(`run_pipeline.py:595`) and the archive step exist and why only one list can
 personalize at a time. Namespacing artifacts by slug deletes both workarounds.
 Larger refactor — do it after Steps 1–6 are green.
+
+**Design.** One prefix per list, threaded through every artifact name.
+
+- New `scripts/personalization/artifacts.py` owns every name: the manifest, the
+  per-batch research/copy/enriched/emails/review files, the master review, the
+  normalized JSON, the merged output, and the glob `merge_enriched` uses. Today
+  those strings are spelled out in seven files; after this they are spelled out
+  once.
+- The prefix comes from the manifest — `create_manifest` records it, everything
+  downstream reads it, and it falls back to the manifest filename so an
+  older manifest still works. `run_pipeline` passes the list slug, so
+  `campaigns/july-6-batch-manifest.json` drives `july-6-batch-001-*`.
+- `merge_enriched` globs `<prefix>-batch-*-enriched.csv` instead of
+  `mix-leads-batch-*`. Cross-list contamination stops being possible, so
+  `relocate_orphan_artifacts` goes.
+- `merged_output_path` derives from the prefix too. It currently derives from
+  the source stem and stops at the first digit, so `july-6-delta-normalized`,
+  `july-7-delta-normalized` and `july-8-delta-normalized` all resolve to
+  `leads/july-enriched.csv` — three lists writing one file. Only the archive
+  step's move hides it.
+
+**Keeping the archive step**, contrary to the line above. Its second job is not
+a workaround: prefixes separate *lists*, not *runs of the same list*. A second
+delta on july-6 renumbers from batch 001 and would overwrite the previous run's
+review markdown and copy JSON. Moving them to `leads/pipeline/<slug>/artifacts/
+<stamp>/` is what keeps that history. `relocate_orphan_artifacts` is the pure
+workaround, and only it goes.
+
+**Verify.** Two lists' artifacts must not collide: build manifests for two slugs
+and assert every generated name differs and each merge glob sees only its own
+batches. Existing `run_batches`/`merge_enriched` tests must still pass with the
+default prefix.
+
+### ✅ Done
+
+`scripts/personalization/artifacts.py` is now the only place any artifact name is
+spelled. `create_manifest` records the prefix; `process_batch`, `build_enriched`,
+`apply_sanitize_all`, `run_batches`, `merge_enriched` and `run_pipeline` all read
+it. `relocate_orphan_artifacts` is deleted along with the `ORPHAN_DIR`,
+`MANIFEST` and `CAMPAIGNS_DIR` constants it needed; the archive step stays, for
+the reason given above, with its comment rewritten to say so.
+
+Suite **261 → 289 passed**. New `tests/test_artifact_namespacing.py` (24) covers
+the disjointness of two lists' names, the merge selecting only its own batches,
+the manifest round-trip and its filename fallback, the `merged_output_path`
+collision the old derivation produced, and the archive list covering every file
+a run writes. `tests/test_merge_enriched.py` was parametrized over
+`mix-leads`/`july-6` (7 → 10): it hardcoded the default prefix, so it would have
+passed just as happily if the prefix were ignored.
+
+Both claims were checked by mutation rather than asserted. Restoring the flat
+`mix-leads-batch-*` glob and the unprefixed per-batch names failed 7 of the new
+tests; dropping the sidecar wiring below failed 1.
+
+**Two things the design missed, found while wiring it up:**
+
+- `normalize_leads` writes a sidecar JSON that still defaulted to a single
+  `campaigns/mix-leads-normalized.json` for every list. The pipeline now passes
+  `json_out=artifacts.normalized_json(slug)` — otherwise it stayed a shared name
+  *and* the archive step would have looked for a file that was never written.
+- `create_batch_manifest.py` had no way to write a manifest anywhere but the
+  shared path, so the manual flow could not run two lists side by side even
+  though `run_batches.py --manifest` accepts one. It now takes the destination as
+  an optional second argument.
+
+README documents the per-list names, the `--manifest` flag, and why the archive
+step outlives the collisions it used to prevent.
 
 ---
 

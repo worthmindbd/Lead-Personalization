@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from personalization import artifacts  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
 from personalization.qa import qa  # noqa: E402
 from personalization.sanitize import sanitize_email, sanitize_signal  # noqa: E402
@@ -22,9 +23,10 @@ def fix_batch(
     campaigns_dir: Path,
     enriched_dir: Path,
     copy_dir: Path,
+    prefix: str = artifacts.DEFAULT_PREFIX,
 ) -> dict:
-    research_path = campaigns_dir / f"mix-leads-batch-{batch_id}-research.json"
-    copy_path = campaigns_dir / f"mix-leads-batch-{batch_id}-copy.json"
+    research_path = artifacts.research_json(prefix, batch_id, campaigns_dir)
+    copy_path = artifacts.copy_json(prefix, batch_id, campaigns_dir)
     if not research_path.exists() or not copy_path.exists():
         raise FileNotFoundError(f"Missing research/copy for batch {batch_id}")
 
@@ -62,7 +64,7 @@ def fix_batch(
     copy_path.write_text(json.dumps(copy_data, indent=2), encoding="utf-8")
 
     build_result = build_batch(
-        source, research_path, copy_path, batch_id, enriched_dir, copy_dir
+        source, research_path, copy_path, batch_id, enriched_dir, copy_dir, prefix=prefix
     )
     return {
         "batch_id": batch_id,
@@ -79,6 +81,11 @@ def main() -> None:
     parser.add_argument("--source", default="leads/mixed-4951-normalized.csv")
     parser.add_argument("--campaigns-dir", default="campaigns")
     parser.add_argument("--batch-id", action="append", help="Repeatable; default all 001-100")
+    parser.add_argument(
+        "--prefix",
+        default=artifacts.DEFAULT_PREFIX,
+        help="Which run's artifacts to sanitize (the pipeline names them by list slug)",
+    )
     args = parser.parse_args()
 
     source = Path(args.source)
@@ -100,6 +107,7 @@ def main() -> None:
             campaigns_dir,
             ROOT / "leads" / "enriched",
             ROOT / "copy",
+            prefix=args.prefix,
         )
         results.append(result)
         total_before += result["qa_before_fail"]

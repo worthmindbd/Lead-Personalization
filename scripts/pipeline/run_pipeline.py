@@ -38,6 +38,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from personalization import artifacts  # noqa: E402
 from personalization.clean_gmb_leads import (  # noqa: E402
     campaign_stem as clean_campaign_stem,
     clean_gmb_leads,
@@ -48,7 +49,6 @@ from personalization.normalize_leads import (  # noqa: E402
     normalize_leads,
     normalized_output_path,
 )
-from personalization.process_batch import merged_output_path  # noqa: E402
 from verify_emails_reoon import (  # noqa: E402
     CACHE_FILE as REOON_CACHE_FILE,
     EMAIL_COLUMNS,
@@ -60,12 +60,9 @@ from verify_emails_reoon import (  # noqa: E402
 PY = str(ROOT / ".venv" / "bin" / "python")
 STATE_FILE = ROOT / ".pipeline" / "state.json"
 CONTACTED_FILE = ROOT / ".pipeline" / "contacted.json"
-ORPHAN_DIR = ROOT / ".pipeline" / "orphaned"
 WORK_ROOT = ROOT / "leads" / "pipeline"
-MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
 ENRICHED_DIR = ROOT / "leads" / "enriched"
 COPY_DIR = ROOT / "copy"
-CAMPAIGNS_DIR = ROOT / "campaigns"
 
 DRIVE_RAW = "Raw Leads"
 DRIVE_CLEANED = "Cleaned Leads"
@@ -592,38 +589,39 @@ def compute_delta(
     return fieldnames, delta, suppressed
 
 
-def relocate_orphan_artifacts() -> None:
-    """Move stray per-batch enriched CSVs out of leads/enriched.
+def manifest_for(entry: dict) -> Path:
+    """This list's manifest: campaigns/<slug>-batch-manifest.json.
 
-    merge_enriched globs every mix-leads-batch-*-enriched.csv, so leftovers
-    from another list/manual run would contaminate this list's merge.
+    One manifest per list, and every artifact name derives from it, so two
+    lists can personalize without touching each other's files. It used to be a
+    single fixed path, which is why only one list could run at a time and why
+    stray batch files had to be swept out of leads/enriched/ beforehand.
     """
-    stray = sorted(ENRICHED_DIR.glob("mix-leads-batch-*-enriched.csv"))
-    if not stray:
-        return
-    dest = ORPHAN_DIR / run_stamp()
-    dest.mkdir(parents=True, exist_ok=True)
-    for path in stray:
-        shutil.move(str(path), str(dest / path.name))
-    print(
-        f"   WARNING: moved {len(stray)} stray batch-enriched file(s) to {dest} "
-        "(would have contaminated the merge)"
-    )
+    return artifacts.manifest_path(entry["slug"])
 
 
-def batch_artifact_paths(batch_ids: list[str], normalized_csv: Path) -> list[Path]:
-    paths: list[Path] = [MANIFEST, MANIFEST.with_suffix(MANIFEST.suffix + ".lock")]
-    paths.append(CAMPAIGNS_DIR / "mix-leads-normalized.json")
-    paths.append(COPY_DIR / "mix-leads-master-review.md")
-    paths.append(merged_output_path(normalized_csv))
+def batch_artifact_paths(batch_ids: list[str], entry: dict) -> list[Path]:
+    """Everything one personalization run leaves in the shared directories.
+
+    The prefix separates lists, not runs of the same list: a second delta on
+    this list renumbers from batch 001 and would overwrite the first delta's
+    review and copy JSON. Archiving these into the list's workdir is what keeps
+    that history.
+    """
+    prefix = entry["slug"]
+    manifest = manifest_for(entry)
+    paths: list[Path] = [manifest, manifest.with_suffix(manifest.suffix + ".lock")]
+    paths.append(artifacts.normalized_json(prefix))
+    paths.append(artifacts.master_review_md(prefix))
+    paths.append(artifacts.merged_csv(prefix))
     for bid in batch_ids:
         paths.extend(
             [
-                CAMPAIGNS_DIR / f"mix-leads-batch-{bid}-research.json",
-                CAMPAIGNS_DIR / f"mix-leads-batch-{bid}-copy.json",
-                COPY_DIR / f"mix-leads-emails-batch-{bid}.json",
-                COPY_DIR / f"mix-leads-review-batch-{bid}.md",
-                ENRICHED_DIR / f"mix-leads-batch-{bid}-enriched.csv",
+                artifacts.research_json(prefix, bid),
+                artifacts.copy_json(prefix, bid),
+                artifacts.emails_json(prefix, bid),
+                artifacts.review_md(prefix, bid),
+                artifacts.enriched_csv(prefix, bid),
             ]
         )
     return paths
@@ -665,7 +663,7 @@ def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | N
     total_leads = 0
     sections: list[str] = []
     for bid in batch_ids:
-        emails_json = COPY_DIR / f"mix-leads-emails-batch-{bid}.json"
+        emails_json = artifacts.emails_json(entry["slug"], bid, COPY_DIR)
         if emails_json.is_file():
             data = json.loads(emails_json.read_text(encoding="utf-8"))
             total_leads += len(data)
@@ -673,7 +671,7 @@ def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | N
                 1 for lead in data for step in lead["sequence"] if step["qa"]["pass"]
             )
             total_emails += sum(len(lead["sequence"]) for lead in data)
-        review_md = COPY_DIR / f"mix-leads-review-batch-{bid}.md"
+        review_md = artifacts.review_md(entry["slug"], bid, COPY_DIR)
         if review_md.is_file():
             sections.append(review_md.read_text(encoding="utf-8"))
     if not sections and total_leads == 0:
@@ -694,6 +692,7 @@ def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | N
 
 def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
     workdir = workdir_for(entry)
+    manifest_path = manifest_for(entry)
     verified = ROOT / entry["verified_csv"] if entry.get("verified_csv") else None
     cumulative = workdir / f"{entry['slug']}-enriched.csv"
     entry["enriched_csv"] = str(cumulative.relative_to(ROOT))
@@ -703,13 +702,13 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
         stage_line("personalize", "no verified leads yet — nothing to personalize")
         return
 
-    # Resume a crashed/interrupted personalization run when the fixed manifest
-    # still points at this list's active delta source.
+    # Resume a crashed/interrupted personalization run when this list's manifest
+    # still points at its active delta source.
     resume = False
     active = entry.get("active_delta")
     if active:
         normalized_rel = active.get("normalized_csv", "")
-        manifest = load_json(MANIFEST, None)
+        manifest = load_json(manifest_path, None)
         if manifest and manifest.get("source") == normalized_rel and (ROOT / normalized_rel).is_file():
             resume = True
             batch_ids = [b["id"] for b in manifest["batches"]]
@@ -742,7 +741,6 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
             f"(verified {csv_row_count(verified)}, already enriched {csv_row_count(cumulative)})",
         )
 
-        relocate_orphan_artifacts()
         for old in workdir.glob("*-normalized.csv"):
             old.unlink()
         delta_csv = workdir / f"{entry['slug']}-delta.csv"
@@ -751,9 +749,14 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
             writer.writeheader()
             writer.writerows(delta)
 
-        normalized_rows = normalize_leads(delta_csv)
+        # The sidecar JSON defaults to a single campaigns/mix-leads-normalized.json
+        # for every list — one more shared name two lists would overwrite, and
+        # one the archive step below would never find.
+        normalized_rows = normalize_leads(
+            delta_csv, json_out=artifacts.normalized_json(entry["slug"])
+        )
         normalized = normalized_output_path(delta_csv, len(normalized_rows))
-        manifest_data = create_manifest(normalized, MANIFEST, batch_size=args.batch_size)
+        manifest_data = create_manifest(normalized, manifest_path, batch_size=args.batch_size)
         batch_ids = [b["id"] for b in manifest_data["batches"]]
         pending_batches = list(batch_ids)
 
@@ -775,6 +778,7 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
         cmd = [
             PY, str(ROOT / "scripts" / "personalization" / "run_batches.py"),
             "--all-pending", "--workers", str(workers), "--merge",
+            "--manifest", str(manifest_path.relative_to(ROOT)),
         ]
         if args.no_render:
             cmd.append("--no-render")
@@ -788,7 +792,7 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
 
     # Harvest: fold per-batch enriched CSVs into the stable cumulative list.
     batch_files = [
-        ENRICHED_DIR / f"mix-leads-batch-{bid}-enriched.csv" for bid in batch_ids
+        artifacts.enriched_csv(entry["slug"], bid, ENRICHED_DIR) for bid in batch_ids
     ]
     batch_files = [p for p in batch_files if p.is_file()]
     added, total = merge_into_cumulative(batch_files, cumulative)
@@ -806,13 +810,14 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
         entry.setdefault("reviews", []).append(str(review.relative_to(ROOT)))
         stage_line("personalize", f"review -> {review.relative_to(ROOT)}")
 
-    # Archive run artifacts so the next list/run starts from a clean slate
-    # (fixed shared filenames would otherwise collide or contaminate merges).
+    # Archive run artifacts into the list's own workdir. Names are namespaced
+    # by slug now, so this is no longer about collisions between lists — it is
+    # about the *next delta on this list*, which renumbers from batch 001 and
+    # would otherwise overwrite this run's review and copy JSON.
     archive = workdir / "artifacts" / stamp
     archive.mkdir(parents=True, exist_ok=True)
-    normalized_for_paths = ROOT / entry["active_delta"]["normalized_csv"]
     moved = 0
-    for path in batch_artifact_paths(batch_ids, normalized_for_paths):
+    for path in batch_artifact_paths(batch_ids, entry):
         if path.is_file():
             shutil.move(str(path), str(archive / path.name))
             moved += 1
