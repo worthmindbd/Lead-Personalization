@@ -47,7 +47,24 @@ def test_process_batch_calls_the_library_copy_engine():
     """Not a same-named local function: the same object."""
     assert pb.generate_sequence is copywriter.generate_sequence
     assert pb.fix_sequence is copywriter.fix_sequence
-    assert pb.contains_forbidden is lp_qa.contains_forbidden
+
+
+def test_process_batch_calls_the_library_research_too():
+    from lead_personalization import research as lp_research
+
+    assert pb.research_lead is lp_research.research_lead
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["fetch_page_signals", "render_page_signals", "needs_render", "positioning_snippet",
+     "classify_evidence", "build_signal", "linkedin_topic", "linkedin_profile_matches",
+     "snippet_is_usable", "social_channel", "VIDEO_EVIDENCE", "GENERIC_TITLE_PARTS"],
+)
+def test_process_batch_holds_no_research_of_its_own(name):
+    """The research half was duplicated too, and unlike the copy half nothing
+    proved the two agreed."""
+    assert not hasattr(pb, name)
 
 
 def test_the_export_and_sanitize_paths_use_the_library_too():
