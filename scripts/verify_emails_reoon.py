@@ -254,6 +254,13 @@ def write_verified_list(
 
     Keeps only Status in KEEP_STATUSES (safe, role_account). Same output path
     every run so each day's 500 verification grows the same file.
+
+    A row may carry several addresses (``a@x.com|b@x.com``) and every one of
+    them costs a credit, because ``extract_emails_from_csv`` sends them all.
+    The row is kept if *any* of them passed, and the address written back is the
+    one that did — otherwise a business would be dropped over a dead info@ while
+    its owner's working address sat verified in the same cell, and a row kept on
+    its secondary would send mail to the address we know is bad.
     """
     with source.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -268,22 +275,26 @@ def write_verified_list(
         status_counts: dict[str, int] = {}
 
         for row in reader:
-            emails = split_emails(row.get(col, ""))
-            primary = emails[0] if emails else ""
-            if not primary:
+            results: list[tuple[str, str]] = []
+            for email in split_emails(row.get(col, "")):
+                status = str(cache.get(email, {}).get("status") or "").strip().lower()
+                if not status:
+                    continue
+                # Counted per address, not per row: the ratio printed against
+                # the source is a count of addresses, and every one was paid for.
+                checked += 1
+                status_counts[status] = status_counts.get(status, 0) + 1
+                results.append((email, status))
+
+            keep = next(((e, s) for e, s in results if s in KEEP_STATUSES), None)
+            if keep is None:
                 continue
-            hit = cache.get(primary, {})
-            status = str(hit.get("status") or "").strip().lower()
-            if not status:
+            email, status = keep
+            if email in seen_emails:
                 continue
-            checked += 1
-            status_counts[status] = status_counts.get(status, 0) + 1
-            if status not in KEEP_STATUSES:
-                continue
-            if primary in seen_emails:
-                continue
-            seen_emails.add(primary)
+            seen_emails.add(email)
             out_row = {k: row.get(k, "") for k in fieldnames if k != "Status"}
+            out_row[col] = email
             out_row["Status"] = status
             rows.append(out_row)
 
