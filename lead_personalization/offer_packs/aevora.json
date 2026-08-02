@@ -171,12 +171,14 @@
       "2": [
         "reels vs long walkthroughs",
         "portfolio clip pacing",
-        "{city} project reels"
+        "{city} project reels",
+        "second angle on {hook}"
       ],
       "3": [
         "post-build video workflow",
         "project video backlog",
-        "after the build wraps"
+        "after the build wraps",
+        "closing the loop on {hook}"
       ]
     },
     "real_estate": {
@@ -188,12 +190,14 @@
       "2": [
         "agent reel variants",
         "listing clip pacing",
-        "partner-facing reels"
+        "partner-facing reels",
+        "second angle on {hook}"
       ],
       "3": [
         "listing video workflow",
         "walkthrough backlog",
-        "who finishes tours"
+        "who finishes tours",
+        "closing the loop on {hook}"
       ]
     },
     "creative_marketing": {
@@ -205,12 +209,14 @@
       "2": [
         "hook variants for ads",
         "client cut turnaround",
-        "paid social clips"
+        "paid social clips",
+        "second angle on {hook}"
       ],
       "3": [
         "overflow edit workflow",
         "white-label finishing",
-        "client video backlog"
+        "client video backlog",
+        "closing the loop on {hook}"
       ]
     },
     "professional_services": {
@@ -222,12 +228,14 @@
       "2": [
         "webinar clip pacing",
         "education reel cuts",
-        "talking-head finish"
+        "talking-head finish",
+        "second angle on {hook}"
       ],
       "3": [
         "content backlog question",
         "who edits seminars",
-        "partner-facing video"
+        "partner-facing video",
+        "closing the loop on {hook}"
       ]
     },
     "medical_aesthetic": {
@@ -239,12 +247,14 @@
       "2": [
         "education reel pacing",
         "before/after clip cuts",
-        "provider video finish"
+        "provider video finish",
+        "second angle on {hook}"
       ],
       "3": [
         "patient video workflow",
         "in-house vs outsourced",
-        "education clip backlog"
+        "education clip backlog",
+        "closing the loop on {hook}"
       ]
     },
     "software_tech": {
@@ -256,12 +266,14 @@
       "2": [
         "demo hook variants",
         "screen recording finish",
-        "feature clip cuts"
+        "feature clip cuts",
+        "second angle on {hook}"
       ],
       "3": [
         "demo video workflow",
         "who finishes ui clips",
-        "launch video backlog"
+        "launch video backlog",
+        "closing the loop on {hook}"
       ]
     },
     "luxury_retail": {
@@ -273,12 +285,14 @@
       "2": [
         "dtc ad variants",
         "product clip pacing",
-        "social reel finish"
+        "social reel finish",
+        "second angle on {hook}"
       ],
       "3": [
         "product video workflow",
         "seasonal clip backlog",
-        "who finishes reels"
+        "who finishes reels",
+        "closing the loop on {hook}"
       ]
     },
     "marine_auto_lifestyle": {
@@ -290,12 +304,14 @@
       "2": [
         "walkaround clip pacing",
         "showroom reel cuts",
-        "inventory ad hooks"
+        "inventory ad hooks",
+        "second angle on {hook}"
       ],
       "3": [
         "inventory video workflow",
         "lot footage backlog",
-        "who finishes tours"
+        "who finishes tours",
+        "closing the loop on {hook}"
       ]
     },
     "auto_services": {
@@ -307,12 +323,14 @@
       "2": [
         "reveal clip pacing",
         "detail reel cuts",
-        "wrap reveal reels"
+        "wrap reveal reels",
+        "second angle on {hook}"
       ],
       "3": [
         "shop video workflow",
         "before/after backlog",
-        "who edits your reels"
+        "who edits your reels",
+        "closing the loop on {hook}"
       ]
     },
     "hospitality_events": {
@@ -324,12 +342,14 @@
       "2": [
         "recap vs raw clips",
         "social highlight cuts",
-        "event reel pacing"
+        "event reel pacing",
+        "second angle on {hook}"
       ],
       "3": [
         "event video workflow",
         "recap backlog",
-        "who finishes highlights"
+        "who finishes highlights",
+        "closing the loop on {hook}"
       ]
     },
     "low_fit": {
@@ -341,12 +361,14 @@
       "2": [
         "short-form variants",
         "second angle on clips",
-        "platform-native cuts"
+        "platform-native cuts",
+        "second angle on {hook}"
       ],
       "3": [
         "video workflow question",
         "footage backlog",
-        "who handles finishing"
+        "who handles finishing",
+        "closing the loop on {hook}"
       ]
     }
   }

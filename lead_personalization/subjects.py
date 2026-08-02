@@ -7,9 +7,16 @@ module-level constant.
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from lead_personalization.qa import subject_has_spam
+
+# The step whose subject should lead with the lead's own research hook. The
+# first touch is the one that has to earn an open from a cold inbox, so a
+# specific line beats a segment stock phrase there; later steps rotate through
+# the pool so the campaign as a whole stays varied.
+HOOK_PREFERRED_STEP = 1
 
 
 def _clean(text: str, max_len: int = 32) -> str:
@@ -63,6 +70,39 @@ def _hook_from_signal(signal: str) -> str:
     return ""
 
 
+def _rotate(items: list[str], key: str, salt: str) -> list[str]:
+    """Deterministically rotate ``items`` for one lead.
+
+    Same md5 scheme the copy pools use (``copywriter._pick``), so a lead's
+    subject choice is stable across re-runs while different leads in the same
+    segment get different lines. Without a key the order is left alone.
+    """
+    if len(items) < 2 or not key:
+        return list(items)
+    digest = int(hashlib.md5(f"{salt}:{key}".encode()).hexdigest(), 16)
+    offset = digest % len(items)
+    return items[offset:] + items[:offset]
+
+
+def _order_templates(templates: list[str], *, has_hook: bool, key: str, step: int) -> list[str]:
+    """Order one step's templates: hook first when it can carry the line.
+
+    Templates are tried in order and the first spam-free candidate wins, so
+    position is the whole decision. A ``{hook}`` template placed after a
+    literal is unreachable — which is why the hook used to never ship.
+    """
+    hooked = [t for t in templates if "{hook}" in t]
+    literals = [t for t in templates if "{hook}" not in t]
+    if has_hook and step == HOOK_PREFERRED_STEP:
+        return hooked + _rotate(literals, key, f"subject{step}")
+    if has_hook:
+        # Later steps: the hook is one option among the literals, not the default.
+        return _rotate(hooked + literals, key, f"subject{step}")
+    # No hook to fill it with — ``_fill`` would substitute the category, which
+    # the literals already say better.
+    return _rotate(literals, key, f"subject{step}") + hooked
+
+
 def _fill(template: str, city: str, hook: str, category: str) -> str:
     city = _clean(city, 18).title() if city else ""
     category = _clean(category, 20).lower() if category else ""
@@ -84,8 +124,14 @@ def build_subject(
     *,
     used_subjects: set[str] | None = None,
     hook: str = "",
+    key: str = "",
 ) -> str:
-    """Build a specific, spam-safe subject (target ≤50 chars, prefer ≤33)."""
+    """Build a specific, spam-safe subject (target ≤50 chars, prefer ≤33).
+
+    ``key`` is the lead's stable identity (its email, as used for the copy
+    pools). It only selects *which* template is tried first; every candidate
+    still has to clear ``subject_has_spam`` and the length cap.
+    """
     used_subjects = used_subjects or set()
     city = (row.get("City") or "").strip()
     category = (row.get("First_category") or "").strip()
@@ -96,6 +142,7 @@ def build_subject(
 
     fallback = subject_templates["low_fit"]
     templates = subject_templates.get(segment, fallback).get(step, fallback[step])
+    templates = _order_templates(list(templates), has_hook=bool(hook), key=key, step=step)
 
     candidates: list[str] = []
     for tmpl in templates:
@@ -114,8 +161,10 @@ def build_subject(
         candidates.append(fb)
 
     for subj in candidates:
-        subj = subj[:50]
-        if not subject_has_spam(subj):
+        # Word-boundary trim: a hook is prospect-supplied text and can be long,
+        # and a subject cut mid-word reads like a broken send.
+        subj = _clean(subj, 50)
+        if subj and not subject_has_spam(subj):
             used_subjects.add(subj)
             return subj
 

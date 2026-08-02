@@ -702,6 +702,7 @@ def generate_sequence(row: dict, research: dict) -> tuple[list[tuple[str, str]],
             step,
             used_subjects=used_subjects,
             hook=hook,
+            key=email,
         )
         sequence.append((subj, body))
 
@@ -731,11 +732,14 @@ def fix_sequence(
     segment = row.get("aevora_segment", "low_fit")
     company = research.get("company", "")
     signal = research.get("research_signal", "")
+    key = research.get("email") or row.get("primary_email", "")
     fixed = []
     used_subjects: set[str] = set()
     for step, (subj, body) in enumerate(sequence, start=1):
         if subject_has_spam(subj) or len(subj) > 60 or subj in used_subjects:
-            subj = build_subject(row, signal, segment, step, used_subjects=used_subjects)
+            subj = build_subject(
+                row, signal, segment, step, used_subjects=used_subjects, key=key
+            )
         if len(subj) > 60:
             cut = subj[:60]
             subj = cut[: cut.rfind(" ")] if " " in cut else cut

@@ -2,66 +2,183 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 
 from personalization.qa import subject_has_spam
+
+# The step whose subject should lead with the lead's own research hook. The
+# first touch is the one that has to earn an open from a cold inbox, so a
+# specific line beats a segment stock phrase there; later steps rotate through
+# the pool so the campaign as a whole stays varied.
+HOOK_PREFERRED_STEP = 1
 
 # Segment × step templates. {city} {hook} {category} filled from lead + research.
 SUBJECT_TEMPLATES: dict[str, dict[int, list[str]]] = {
     "home_design": {
         1: ["{city} portfolio reel", "{hook}", "site walkthrough pacing"],
-        2: ["reels vs long walkthroughs", "portfolio clip pacing", "{city} project reels"],
-        3: ["post-build video workflow", "project video backlog", "after the build wraps"],
+        2: [
+            "reels vs long walkthroughs",
+            "portfolio clip pacing",
+            "{city} project reels",
+            "second angle on {hook}",
+        ],
+        3: [
+            "post-build video workflow",
+            "project video backlog",
+            "after the build wraps",
+            "closing the loop on {hook}",
+        ],
     },
     "real_estate": {
         1: ["{city} listing media", "{hook}", "property tour pacing"],
-        2: ["agent reel variants", "listing clip pacing", "partner-facing reels"],
-        3: ["listing video workflow", "walkthrough backlog", "who finishes tours"],
+        2: [
+            "agent reel variants",
+            "listing clip pacing",
+            "partner-facing reels",
+            "second angle on {hook}",
+        ],
+        3: [
+            "listing video workflow",
+            "walkthrough backlog",
+            "who finishes tours",
+            "closing the loop on {hook}",
+        ],
     },
     "creative_marketing": {
         1: ["client reel finish", "{hook}", "deliverable pacing"],
-        2: ["hook variants for ads", "client cut turnaround", "paid social clips"],
-        3: ["overflow edit workflow", "white-label finishing", "client video backlog"],
+        2: [
+            "hook variants for ads",
+            "client cut turnaround",
+            "paid social clips",
+            "second angle on {hook}",
+        ],
+        3: [
+            "overflow edit workflow",
+            "white-label finishing",
+            "client video backlog",
+            "closing the loop on {hook}",
+        ],
     },
     "professional_services": {
         1: ["{city} authority clips", "{hook}", "seminar video finish"],
-        2: ["webinar clip pacing", "education reel cuts", "talking-head finish"],
-        3: ["content backlog question", "who edits seminars", "partner-facing video"],
+        2: [
+            "webinar clip pacing",
+            "education reel cuts",
+            "talking-head finish",
+            "second angle on {hook}",
+        ],
+        3: [
+            "content backlog question",
+            "who edits seminars",
+            "partner-facing video",
+            "closing the loop on {hook}",
+        ],
     },
     "medical_aesthetic": {
         1: ["procedure video finish", "{hook}", "patient education clips"],
-        2: ["education reel pacing", "before/after clip cuts", "provider video finish"],
-        3: ["patient video workflow", "in-house vs outsourced", "education clip backlog"],
+        2: [
+            "education reel pacing",
+            "before/after clip cuts",
+            "provider video finish",
+            "second angle on {hook}",
+        ],
+        3: [
+            "patient video workflow",
+            "in-house vs outsourced",
+            "education clip backlog",
+            "closing the loop on {hook}",
+        ],
     },
     "software_tech": {
         1: ["product demo pacing", "{hook}", "ui walkthrough finish"],
-        2: ["demo hook variants", "screen recording finish", "feature clip cuts"],
-        3: ["demo video workflow", "who finishes ui clips", "launch video backlog"],
+        2: [
+            "demo hook variants",
+            "screen recording finish",
+            "feature clip cuts",
+            "second angle on {hook}",
+        ],
+        3: [
+            "demo video workflow",
+            "who finishes ui clips",
+            "launch video backlog",
+            "closing the loop on {hook}",
+        ],
     },
     "luxury_retail": {
         1: ["{city} product reels", "{hook}", "catalog vs crave video"],
-        2: ["dtc ad variants", "product clip pacing", "social reel finish"],
-        3: ["product video workflow", "seasonal clip backlog", "who finishes reels"],
+        2: [
+            "dtc ad variants",
+            "product clip pacing",
+            "social reel finish",
+            "second angle on {hook}",
+        ],
+        3: [
+            "product video workflow",
+            "seasonal clip backlog",
+            "who finishes reels",
+            "closing the loop on {hook}",
+        ],
     },
     "marine_auto_lifestyle": {
         1: ["{city} showcase reel", "{hook}", "inventory walkthrough"],
-        2: ["walkaround clip pacing", "showroom reel cuts", "inventory ad hooks"],
-        3: ["inventory video workflow", "lot footage backlog", "who finishes tours"],
+        2: [
+            "walkaround clip pacing",
+            "showroom reel cuts",
+            "inventory ad hooks",
+            "second angle on {hook}",
+        ],
+        3: [
+            "inventory video workflow",
+            "lot footage backlog",
+            "who finishes tours",
+            "closing the loop on {hook}",
+        ],
     },
     "auto_services": {
         1: ["before/after reels", "{hook}", "{city} transformation reels"],
-        2: ["reveal clip pacing", "detail reel cuts", "wrap reveal reels"],
-        3: ["shop video workflow", "before/after backlog", "who edits your reels"],
+        2: [
+            "reveal clip pacing",
+            "detail reel cuts",
+            "wrap reveal reels",
+            "second angle on {hook}",
+        ],
+        3: [
+            "shop video workflow",
+            "before/after backlog",
+            "who edits your reels",
+            "closing the loop on {hook}",
+        ],
     },
     "hospitality_events": {
         1: ["{city} event recaps", "{hook}", "venue highlight reels"],
-        2: ["recap vs raw clips", "social highlight cuts", "event reel pacing"],
-        3: ["event video workflow", "recap backlog", "who finishes highlights"],
+        2: [
+            "recap vs raw clips",
+            "social highlight cuts",
+            "event reel pacing",
+            "second angle on {hook}",
+        ],
+        3: [
+            "event video workflow",
+            "recap backlog",
+            "who finishes highlights",
+            "closing the loop on {hook}",
+        ],
     },
     "low_fit": {
         1: ["{city} video finish", "{hook}", "site clip pacing"],
-        2: ["short-form variants", "second angle on clips", "platform-native cuts"],
-        3: ["video workflow question", "footage backlog", "who handles finishing"],
+        2: [
+            "short-form variants",
+            "second angle on clips",
+            "platform-native cuts",
+            "second angle on {hook}",
+        ],
+        3: [
+            "video workflow question",
+            "footage backlog",
+            "who handles finishing",
+            "closing the loop on {hook}",
+        ],
     },
 }
 
@@ -117,6 +234,39 @@ def _hook_from_signal(signal: str) -> str:
     return ""
 
 
+def _rotate(items: list[str], key: str, salt: str) -> list[str]:
+    """Deterministically rotate ``items`` for one lead.
+
+    Same md5 scheme the copy pools use (``process_batch._pick``), so a lead's
+    subject choice is stable across re-runs while different leads in the same
+    segment get different lines. Without a key the order is left alone.
+    """
+    if len(items) < 2 or not key:
+        return list(items)
+    digest = int(hashlib.md5(f"{salt}:{key}".encode()).hexdigest(), 16)
+    offset = digest % len(items)
+    return items[offset:] + items[:offset]
+
+
+def _order_templates(templates: list[str], *, has_hook: bool, key: str, step: int) -> list[str]:
+    """Order one step's templates: hook first when it can carry the line.
+
+    Templates are tried in order and the first spam-free candidate wins, so
+    position is the whole decision. A ``{hook}`` template placed after a
+    literal is unreachable — which is why the hook used to never ship.
+    """
+    hooked = [t for t in templates if "{hook}" in t]
+    literals = [t for t in templates if "{hook}" not in t]
+    if has_hook and step == HOOK_PREFERRED_STEP:
+        return hooked + _rotate(literals, key, f"subject{step}")
+    if has_hook:
+        # Later steps: the hook is one option among the literals, not the default.
+        return _rotate(hooked + literals, key, f"subject{step}")
+    # No hook to fill it with — ``_fill`` would substitute the category, which
+    # the literals already say better.
+    return _rotate(literals, key, f"subject{step}") + hooked
+
+
 def _fill(template: str, city: str, hook: str, category: str) -> str:
     city = _clean(city, 18).title() if city else ""
     category = _clean(category, 20).lower() if category else ""
@@ -137,8 +287,14 @@ def build_subject(
     *,
     used_subjects: set[str] | None = None,
     hook: str = "",
+    key: str = "",
 ) -> str:
-    """Build a specific, spam-safe subject (target ≤50 chars, prefer ≤33)."""
+    """Build a specific, spam-safe subject (target ≤50 chars, prefer ≤33).
+
+    ``key`` is the lead's stable identity (its email, as used for the copy
+    pools). It only selects *which* template is tried first; every candidate
+    still has to clear ``subject_has_spam`` and the length cap.
+    """
     used_subjects = used_subjects or set()
     city = (row.get("City") or "").strip()
     category = (row.get("First_category") or "").strip()
@@ -150,6 +306,7 @@ def build_subject(
     templates = SUBJECT_TEMPLATES.get(segment, SUBJECT_TEMPLATES["low_fit"]).get(
         step, SUBJECT_TEMPLATES["low_fit"][step]
     )
+    templates = _order_templates(list(templates), has_hook=bool(hook), key=key, step=step)
 
     candidates: list[str] = []
     for tmpl in templates:
@@ -168,8 +325,10 @@ def build_subject(
         candidates.append(fb)
 
     for subj in candidates:
-        subj = subj[:50]
-        if not subject_has_spam(subj):
+        # Word-boundary trim: a hook is prospect-supplied text and can be long,
+        # and a subject cut mid-word reads like a broken send.
+        subj = _clean(subj, 50)
+        if subj and not subject_has_spam(subj):
             used_subjects.add(subj)
             return subj
 
