@@ -432,6 +432,22 @@ half is still duplicated and that `scripts/` is authoritative there.
 - README leads with `lead_personalization/` as "Core library" above the code that
   actually runs — one line clarifying which is which.
 
+### ✅ Done
+
+`scripts/archive/` deleted: 13 files, 9,409 lines. Checked before deleting rather
+than after — nothing in the repo imports or references them, and they were dead
+twice over: every one computes `ROOT = parents[1]`, which from `scripts/archive/`
+resolves to `scripts/` rather than the repo root, and all of them read a
+`leads/Real-Estate-USA-500.csv` that no longer exists. None of them could have
+run from where they sat. The README's Archive section now records the count and
+the exact recovery command (`git show a676e35:scripts/archive/<name>.py`) instead
+of a bare "git has them".
+
+The README half was done in Step 8 — see the "How the two packages relate"
+section, which also names the research duplication Step 10 still has to clear.
+
+Suite unchanged at 244 passed: nothing referenced the archive.
+
 ---
 
 ## Step 10 — Collapse the research half

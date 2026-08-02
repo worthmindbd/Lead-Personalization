@@ -260,4 +260,6 @@ Docs: [Reoon API](https://www.reoon.com/articles/api-documentation-of-reoon-emai
 
 ## Archive
 
-Previous mix-leads campaign (June 2026) is in `archive/mix-leads-2026-06/` — batch research/copy JSON, handoff notes, and run logs from the prior run, kept for reference. Its one-off scripts live in `scripts/archive/`.
+Previous mix-leads campaign (June 2026) is in `archive/mix-leads-2026-06/` — batch research/copy JSON, handoff notes, and run logs from the prior run, kept for reference.
+
+The one-off scripts that produced it used to sit in `scripts/archive/`. They were removed in the Step 9 cleanup: 9,409 lines across 13 files, all hardcoded to a `leads/Real-Estate-USA-500.csv` that no longer exists and all computing `ROOT` as if they still lived in `scripts/`, so none of them could run from where they sat. Recover any of them with `git show a676e35:scripts/archive/<name>.py`.
