@@ -459,6 +459,103 @@ proving the two produce the same signals — so this needs its own before/after
 snapshot over real leads, not a mechanical swap. Bigger and riskier than Step 8;
 worth doing, not worth rushing into the same commit.
 
+### Survey — how far apart are they, actually?
+
+Measured rather than guessed, by parsing both sides and diffing each shared
+function's source (`ast.get_source_segment`):
+
+| Pair | Shared fns | Byte-identical | Differ |
+|---|---|---|---|
+| `process_batch.py` ↔ `research.py` | 11 | 6 | 5 |
+| `linkedin_apify.py` ↔ `linkedin.py` | 9 | 4 | 5 |
+| `normalize_leads.py` ↔ `pipeline.py` | 6 | 4 | 2 |
+
+Reading the 12 that differ: **ten of them differ only in comments, line wrapping,
+a module alias, or a private-name prefix.** The library is mostly a
+comment-stripped copy. Two are substantive, and in both the library is *ahead*:
+
+1. **`research_lead` takes an injected `PageRenderer`** instead of reaching for
+   the `RENDER_FALLBACK` module global and a hardcoded `render_page_signals`.
+   `NodePlaywrightRenderer.render` is `render_page_signals` with the three
+   constants moved into `__init__`.
+2. **`linkedin.scrape_profiles` holds an exclusive `flock` and writes the cache
+   atomically** (temp file + `os.replace`). `linkedin_apify` does neither.
+
+**That second one is a live bug, not a style difference.** `run_batches.py
+--workers N` runs batches in a `ThreadPoolExecutor`, and each worker calls
+`scrape_profiles` → `_save_cache` → a plain `write_text` over the shared
+`.apify/linkedin_cache.json`. `_warm_linkedin_cache` mitigates it by scraping
+everything up front so workers find the cache warm — but that is a workaround
+with a hole in it: when an Apify chunk fails, the code deliberately leaves those
+handles uncached "for a later retry", so exactly the handles a warm pass could
+not resolve are the ones parallel workers then race to write. The library
+already solved this. Collapsing onto it fixes the race as a side effect.
+
+And one divergence where the **library is wrong**:
+
+3. **`pipeline.normalize_row` never sets `fit_score`.** The shipping version
+   sets `fit_score_for(segment, category)`. Downstream, `process_batch` excludes
+   `fit_score == "skip"` leads from copy entirely — so anything normalized by the
+   library path would have `fit_score == ""`, never match `"skip"`, and get copy
+   written and exported. Good evidence that this path has never been run
+   end to end. Fix the library before importing it.
+
+**So the plan's premise was too pessimistic.** This is much closer to a
+mechanical swap than "collapse and hope", and the direction is the same as
+Step 8: `scripts/` imports the library, keeping only what is genuinely
+environment-specific (`.env` loading, `api_token()`, cache location, the
+`RENDER_FALLBACK` global, CLI wiring).
+
+### Design — three sub-steps, three commits
+
+**10a — research.** `process_batch.py` drops `fetch_page_signals`, `needs_render`,
+`render_page_signals`, `_norm_tokens`, `positioning_snippet`, `social_channel`,
+`snippet_is_usable`, `_ORG_STOPWORDS`, `linkedin_profile_matches`,
+`linkedin_topic`, `classify_evidence`, `build_signal`, `research_lead`, plus
+`USER_AGENT`, `FETCH_TIMEOUT`, `VIDEO_EVIDENCE`, `GENERIC_TITLE_PARTS`. It
+imports `research_lead` and constructs
+`NodePlaywrightRenderer(RENDER_SCRIPT, ROOT, RENDER_TIMEOUT_S)` inside
+`process_batch()` — not at module level, because `--no-render` mutates
+`RENDER_FALLBACK` after import.
+
+**10b — LinkedIn.** `linkedin_apify.py` becomes the environment shim it should
+always have been: `load_dotenv`, `api_token`, `CACHE_FILE`, and a
+`scrape_profiles(urls, max_posts)` that supplies those to the library, re-exporting
+`li_handle` / `posts_for_url` / `clean_post_topic`. It keeps raising `SystemExit`
+on a missing token — the library raises `RuntimeError`, and `process_batch`
+catches `SystemExit` to *skip* LinkedIn rather than fail the batch. Swapping the
+exception type silently converts "run without LinkedIn" into "batch dies", so the
+shim checks the token itself and raises before delegating.
+
+**10c — normalize.** Add the missing `fit_score` to `pipeline.normalize_row`
+first. Then `normalize_leads.py` drops `split_emails`, `pick_primary_email`,
+`domain_company`, `research_urls`, `parse_name_field`, `normalize_row`,
+`outreach_tier` (a one-line alias for the library's `resolve_outreach_tier`) and
+the three module regexes, keeping the file-level concerns: `campaign_stem`,
+`strip_count_suffix`, `count_named_path`, `normalized_output_path`,
+`normalize_leads`, `main`.
+
+### Verify — against real data, without spending a cent
+
+No network, no Apify calls, and no synthetic-only corpus:
+
+- **Research:** replay real rows from
+  `leads/pipeline/july-20-2026/july-20-2026-cleaned.csv` (3,045 rows) through
+  `research_lead` with `urlopen` stubbed to serve a recorded page and the
+  renderer stubbed, before and after; diff the full result dicts. Cross the rows
+  with real LinkedIn posts from `.apify/linkedin_cache.json` so
+  `linkedin_topic`, `linkedin_profile_matches` and `build_signal` are exercised
+  on real post text, not invented strings.
+- **LinkedIn:** snapshot `li_handle`, `clean_post_topic`, `_summarize_post`,
+  `_post_handles` and `posts_for_url` over every entry in the real 226 KB cache,
+  before and after.
+- **Normalize:** run the whole 3,045-row CSV through `normalize_rows` before and
+  after and diff the output byte-for-byte — including `fit_score`, which is the
+  one column expected to change (from absent to populated) on the library side.
+- **The lock:** a new test that spawns concurrent writers against one cache file
+  and asserts no entry is lost. It must fail against `linkedin_apify`'s current
+  unlocked `_save_cache` — otherwise it is not testing anything.
+
 ---
 
 ## Not doing
