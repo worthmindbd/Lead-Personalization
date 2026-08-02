@@ -106,6 +106,7 @@ After all lists are processed it regenerates the report and imports it to Drive 
 ### State, working files, Drive layout
 
 - **State:** `.pipeline/state.json` — per-list stage, Drive-title ↔ local-slug mapping, upload markers, in-flight delta. Every run is resumable and idempotent.
+- **Contacted index:** `.pipeline/contacted.json` — every address that has been personalized, mapped to the list that got there first. Drive lists overlap, so each list's delta is checked against this index and an address already sequenced on another list is skipped (the run prints how many). Rebuild or inspect it with `run_pipeline.py --backfill-contacted`; the first run after an upgrade seeds it automatically from the existing enriched CSVs.
 - **Working files:** `leads/pipeline/<slug>/` (slug = sanitized title, e.g. `July 25,2026` → `july-25-2026`) holds `raw.*`, `<slug>-cleaned.csv`, `<slug>-verified.csv`, `<slug>-enriched.csv` (cumulative), and archived batch artifacts.
 - **Drive folders:** `Raw Leads`, `Cleaned Leads`, `Verified Leads`, `Personalized leads` — each downstream stage writes a `<title>/` subfolder named after the raw file.
 - **Daily cadence:** because verification is capped at 500/day, large lists (thousands of leads) clear over several days — run the command daily and each list advances by up to 500 verified emails until `done`.

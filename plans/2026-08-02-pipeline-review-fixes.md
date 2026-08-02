@@ -12,7 +12,14 @@ lists read non-zero without the tombstones), #6 on #1/#2/#3/#5, #7 on #6, #8 on 
 
 ---
 
-## Step 1 — Make the hook reach the subject line
+## Step 1 — Make the hook reach the subject line ✅ done (540b6ed)
+
+Landed as described, plus a word-boundary trim on over-long subjects. Replayed
+over the 352 leads whose research JSON survives: 13 unique subjects → 367, top
+subject 340 → 105, QA 1056/1056 with zero sequence issues. 22 new tests in
+`tests/test_subjects.py`, including one asserting the two engines' templates
+have not drifted.
+
 
 **Problem.** `scripts/personalization/subjects.py:154` walks the template list in
 order and returns the first non-spam candidate. Every segment's step-1 list is
@@ -43,7 +50,13 @@ new test must cover a hostile hook (spam word, over-length, forbidden term).
 
 ---
 
-## Step 2 — Global cross-list dedupe so nobody is emailed twice
+## Step 2 — Global cross-list dedupe so nobody is emailed twice ✅ done
+
+Landed as `.pipeline/contacted.json` + `--backfill-contacted`. Backfill over
+real state produced exactly the predicted numbers: 4,769 unique addresses, 192
+already personalized on 2+ lists, overlaps attributed to the older list
+(july-6 2,381 / july-7 2,126 / july-31 159 / july-25 79 / july-8 23 / july-17 1).
+
 
 **Problem.** `compute_delta` (`run_pipeline.py:446`) dedupes only against the
 list's own enriched CSV. 4,961 enriched rows resolve to 4,769 unique addresses —

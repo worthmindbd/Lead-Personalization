@@ -58,6 +58,7 @@ from verify_emails_reoon import (  # noqa: E402
 
 PY = str(ROOT / ".venv" / "bin" / "python")
 STATE_FILE = ROOT / ".pipeline" / "state.json"
+CONTACTED_FILE = ROOT / ".pipeline" / "contacted.json"
 ORPHAN_DIR = ROOT / ".pipeline" / "orphaned"
 WORK_ROOT = ROOT / "leads" / "pipeline"
 MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
@@ -443,18 +444,96 @@ def enriched_emails(enriched_csv: Path) -> set[str]:
     return {e for e in (row_email(r) for r in rows) if e}
 
 
-def compute_delta(verified_csv: Path, enriched_csv: Path) -> tuple[list[str], list[dict]]:
+# --- contacted index (cross-list suppression) --------------------------------
+#
+# Drive lists overlap: the same business turns up in more than one export, so
+# deduping a delta against only its own list's enriched CSV lets the same
+# person receive two sequences. The index records address -> the slug of the
+# list that personalized it first, and every later list skips it.
+
+
+def load_contacted() -> dict[str, str]:
+    """address -> slug of the list that personalized it first."""
+    data = load_json(CONTACTED_FILE, {})
+    addresses = data.get("addresses") if isinstance(data, dict) else None
+    return addresses if isinstance(addresses, dict) else {}
+
+
+def save_contacted(addresses: dict[str, str]) -> None:
+    save_json_atomic(CONTACTED_FILE, {"updated": now_iso(), "addresses": addresses})
+
+
+def record_contacted(slug: str, emails) -> int:
+    """Claim ``emails`` for ``slug``. First writer wins — never reattributes."""
+    addresses = load_contacted()
+    added = 0
+    for email in emails:
+        if email and email not in addresses:
+            addresses[email] = slug
+            added += 1
+    if added:
+        save_contacted(addresses)
+    return added
+
+
+def backfill_contacted(state: dict) -> tuple[int, int]:
+    """Seed the index from every per-list enriched CSV already on disk.
+
+    Attribution goes to the oldest list first, so the newer list is the one
+    that yields and re-running the backfill is stable. Returns
+    (unique addresses, addresses seen on more than one list).
+    """
+    entries = sorted(
+        state.get("lists", {}).values(),
+        key=lambda e: (e.get("drive_mtime") or e.get("discovered_at") or "", e.get("slug", "")),
+    )
+    addresses = load_contacted()
+    duplicates = 0
+    for entry in entries:
+        rel = entry.get("enriched_csv")
+        if not rel:
+            continue
+        slug = entry.get("slug", "")
+        for email in sorted(enriched_emails(ROOT / rel)):
+            owner = addresses.get(email)
+            if owner is None:
+                addresses[email] = slug
+            elif owner != slug:
+                duplicates += 1
+    save_contacted(addresses)
+    return len(addresses), duplicates
+
+
+def compute_delta(
+    verified_csv: Path,
+    enriched_csv: Path,
+    *,
+    contacted: dict[str, str] | None = None,
+    slug: str = "",
+) -> tuple[list[str], list[dict], int]:
+    """Rows to personalize, plus how many were suppressed as already contacted.
+
+    An address attributed to *this* list is not suppressed — it is already in
+    the list's own enriched CSV, and if that file were lost we would want to
+    rebuild it rather than skip the lead forever.
+    """
     fieldnames, rows = load_rows(verified_csv)
     done = enriched_emails(enriched_csv)
+    contacted = contacted or {}
     seen: set[str] = set()
     delta = []
+    suppressed = 0
     for row in rows:
         email = row_email(row)
         if not email or email in done or email in seen:
             continue
         seen.add(email)
+        owner = contacted.get(email)
+        if owner and owner != slug:
+            suppressed += 1
+            continue
         delta.append(row)
-    return fieldnames, delta
+    return fieldnames, delta, suppressed
 
 
 def relocate_orphan_artifacts() -> None:
@@ -589,8 +668,15 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
             entry["active_delta"] = None
 
     if not resume:
-        fieldnames, delta = compute_delta(verified, cumulative)
+        fieldnames, delta, suppressed = compute_delta(
+            verified, cumulative, contacted=load_contacted(), slug=entry["slug"]
+        )
         entry["pending_delta"] = len(delta)
+        if suppressed:
+            stage_line(
+                "personalize",
+                f"skipped {suppressed} address(es) already personalized on another list",
+            )
         if not delta:
             stage_line("personalize", "delta: 0 new verified leads — up to date")
             return
@@ -654,6 +740,9 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
         "personalize",
         f"merged {len(batch_files)} batch file(s): +{added} leads -> {total} total in {cumulative.name}",
     )
+    claimed = record_contacted(entry["slug"], enriched_emails(cumulative))
+    if claimed:
+        stage_line("personalize", f"claimed {claimed} address(es) in the contacted index")
 
     stamp = run_stamp()
     review = write_list_review(entry, batch_ids, stamp)
@@ -1020,12 +1109,27 @@ def main() -> None:
     parser.add_argument("--no-linkedin", action="store_true",
                         help="Pass --no-linkedin to run_batches (skip Apify)")
     parser.add_argument("--status", action="store_true", help="Print state and exit")
+    parser.add_argument("--backfill-contacted", action="store_true",
+                        help="Rebuild .pipeline/contacted.json from existing enriched CSVs and exit")
     args = parser.parse_args()
 
     state = load_state()
     if args.status:
         print_status(state)
         return
+
+    if args.backfill_contacted:
+        unique, duplicates = backfill_contacted(state)
+        print(f"Contacted index: {unique} unique address(es); "
+              f"{duplicates} already personalized on more than one list.")
+        return
+
+    # First run after the index was introduced: claim everything already sent,
+    # or the next delta would re-personalize leads from every other list.
+    if not CONTACTED_FILE.is_file():
+        unique, duplicates = backfill_contacted(state)
+        print(f"\nSeeded contacted index from existing enriched lists: {unique} address(es) "
+              f"({duplicates} found on more than one list).")
 
     titles = discover(state, args)
     save_state(state)
