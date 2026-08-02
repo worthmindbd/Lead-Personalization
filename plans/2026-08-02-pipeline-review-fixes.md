@@ -80,19 +80,49 @@ addresses appear in 2+ cleaned lists, so it grows as the backlog drains.
 
 ---
 
-## Step 3 — Tombstone cache for rejected addresses
+## Step 3 — Tombstone cache for rejected addresses ✅ done
 
-**Problem.** Reoon rejections are dropped, so a re-check looks unavoidable.
-`seed_cache_from_verified` can only restore passing addresses. Today July 6/7/25
-show `pending_verification=0` in the sheet while 3,273 of their addresses are
-absent from the cache. Harmless only because `reconcile_list_with_drive:770`
+Landed as `.reoon/rejected.json` + `--backfill-rejected` (previews unless
+`--apply`) + `verify_emails_reoon.py --recheck-rejected`. Backfill tombstoned
+3,255 addresses across the three completed lists (july-6 1,482, july-7 1,727,
+july-25 46 — 18 fewer than the review's 3,273 because july-7 has 18 addresses in
+its verified CSV but not the cache, and the backfill correctly refuses to
+tombstone anything that passed).
+
+Every cleaned address on those lists is now accounted for by a cache entry or a
+tombstone, zero unexplained: july-6 2,392+1,482 of 3,874; july-7 2,228+1,745 of
+3,973; july-25 102+46 of 148. `pending_verification` reads 0 for all three
+computed directly, with no `stage == "done"` short-circuit involved. Pending on
+the unfinished lists also dropped (july-17 3,363→3,279, july-20 2,536→2,078,
+july-31 7,607→6,113, july-8 1,320→1,300) — those are cross-list duplicates that
+were already checked and rejected under another list, so the budget was never
+going to buy anything there. 8 new tests in `tests/test_rejected_tombstones.py`;
+`tests/conftest.py` now pins the runtime-state paths at a tmp dir so the suite
+can never read this machine's real cache.
+
+
+**Problem.** *Re-scoped after measuring the cache.* The live path is fine:
+`verify_emails_reoon.py:427` does `cache.update(verified)` for every result, so
+rejections **are** persisted (the cache holds 190 `catch_all`, 41 `unknown`,
+7 `invalid`, 6 `disabled`, 2 `disposable`). What is lost is historical: 4,512
+of the 5,012 cache entries are `reseeded_from_verified_csv` placeholders, and
+`seed_cache_from_verified` can only restore addresses that *passed*. The
+rejects from those runs are gone.
+
+That leaves 3,273 addresses on the three `verify_complete` lists absent from
+the cache (july-6: 1,482, july-7: 1,745, july-25: 46) while the sheet shows
+`pending_verification=0`. Harmless only because `reconcile_list_with_drive:770`
 short-circuits on `stage == "done"` — the flag is the sole guard. Any reset or
 same-title re-upload silently re-spends ~3,273 credits (6.5 days of budget).
 
+So there is nothing to fix at the point of verification; the work is to record
+what the lost cache knew.
+
 **Change.**
-- Persist every checked-and-dropped address to `.reoon/rejected.json` at the
-  point of verification, with status and date.
-- `pending_verification` treats a tombstoned address as checked.
+- `.reoon/rejected.json` holds addresses known checked *without* a result, kept
+  separate from the cache so an inference is never mistaken for a Reoon answer.
+- `pending_verification` and the verifier's own pending list both treat a
+  tombstoned address as checked (`--recheck-rejected` overrides).
 - Backfill what is recoverable: addresses in a cleaned list, absent from both the
   cache and that list's verified CSV, on a list whose verification genuinely
   completed. Mark these `inferred_rejected` — distinct from a real result, so a

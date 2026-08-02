@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / ".reoon"
 STATE_FILE = STATE_DIR / "daily_usage.json"
 CACHE_FILE = STATE_DIR / "verified_cache.json"
+REJECTED_FILE = STATE_DIR / "rejected.json"
 API_BASE = "https://emailverifier.reoon.com/api/v1"
 
 EMAIL_COLUMNS = ("primary_email", "Email", "email", "Email Address")
@@ -167,6 +168,21 @@ def save_cache(cache: dict) -> None:
     save_json(CACHE_FILE, cache)
 
 
+def load_rejected() -> dict[str, dict]:
+    """Addresses known to have been checked, but with no result on hand.
+
+    The cache already records every Reoon answer, rejections included. This
+    file covers the other case: a run whose cache was later lost, where
+    ``seed_cache_from_verified`` could restore only the addresses that
+    *passed*. The rejects are recovered by inference from a list that finished
+    verifying, and kept in a separate file so an inference is never mistaken
+    for a Reoon result. ``--recheck-rejected`` ignores it.
+    """
+    data = load_json(REJECTED_FILE, {})
+    addresses = data.get("addresses") if isinstance(data, dict) else None
+    return addresses if isinstance(addresses, dict) else {}
+
+
 def split_emails(raw: str) -> list[str]:
     parts = [p.strip() for p in (raw or "").replace(";", "|").split("|")]
     return [p.lower() for p in parts if p and "@" in p]
@@ -302,6 +318,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Show plan only; no API calls")
     parser.add_argument("--force", action="store_true", help="Re-verify cached emails")
     parser.add_argument(
+        "--recheck-rejected",
+        action="store_true",
+        help="Spend credits on addresses tombstoned in .reoon/rejected.json",
+    )
+    parser.add_argument(
         "--full-list",
         action="store_true",
         help="Verify all pending emails via bulk API (uses instant credits after daily cap)",
@@ -333,14 +354,19 @@ def main() -> None:
 
     all_emails = extract_emails_from_csv(source)
     cache = load_cache() if not args.force else {}
-    pending = [e for e in all_emails if e not in cache]
-    skipped_cached = len(all_emails) - len(pending)
+    rejected = {} if (args.force or args.recheck_rejected) else load_rejected()
+    pending = [e for e in all_emails if e not in cache and e not in rejected]
+    skipped_cached = sum(1 for e in all_emails if e in cache)
+    skipped_rejected = sum(1 for e in all_emails if e not in cache and e in rejected)
 
     print(f"Source: {source}")
     print(f"Verified list (stable): {output}")
     print(f"Keep statuses: {', '.join(sorted(KEEP_STATUSES))}")
     print(f"Unique emails in CSV: {len(all_emails)}")
     print(f"Already cached (skipped): {skipped_cached}")
+    if skipped_rejected:
+        print(f"Known rejected, no result cached (skipped): {skipped_rejected} "
+              "— use --recheck-rejected to spend credits on these")
     print(f"Pending verification: {len(pending)}")
 
     if args.dry_run:

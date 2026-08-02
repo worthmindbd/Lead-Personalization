@@ -52,6 +52,7 @@ from personalization.process_batch import merged_output_path  # noqa: E402
 from verify_emails_reoon import (  # noqa: E402
     CACHE_FILE as REOON_CACHE_FILE,
     EMAIL_COLUMNS,
+    REJECTED_FILE as REOON_REJECTED_FILE,
     extract_emails_from_csv,
     load_dotenv,
 )
@@ -339,10 +340,65 @@ def reoon_key_available() -> bool:
     return bool(key) and key != "your_api_key_here"
 
 
+def load_rejected() -> dict[str, dict]:
+    """Addresses known checked but with no cached result — see backfill_rejected."""
+    data = load_json(REOON_REJECTED_FILE, {})
+    addresses = data.get("addresses") if isinstance(data, dict) else None
+    return addresses if isinstance(addresses, dict) else {}
+
+
+def save_rejected(addresses: dict[str, dict]) -> None:
+    save_json_atomic(REOON_REJECTED_FILE, {"updated": now_iso(), "addresses": addresses})
+
+
 def pending_verification(cleaned_csv: Path) -> int:
     cache = load_json(REOON_CACHE_FILE, {})
+    rejected = load_rejected()
     emails = extract_emails_from_csv(cleaned_csv)
-    return sum(1 for e in emails if e not in cache)
+    return sum(1 for e in emails if e not in cache and e not in rejected)
+
+
+def backfill_rejected(state: dict, apply: bool = False) -> list[tuple[str, int]]:
+    """Recover what a lost cache knew about rejected addresses.
+
+    Only for lists whose verification genuinely finished: every cleaned address
+    was checked, so one that is in neither the cache nor the verified CSV must
+    have been checked and rejected. Those are the only ones this can infer, and
+    the inference is recorded with the list it came from so it stays auditable.
+
+    Deliberately never automatic — a list wrongly marked complete would hide
+    real unverified leads for good. Returns (slug, count) per list.
+    """
+    addresses = load_rejected()
+    cache = load_json(REOON_CACHE_FILE, {})
+    found: list[tuple[str, int]] = []
+    stamp = now_iso()
+    for entry in state.get("lists", {}).values():
+        if not entry.get("verify_complete") or not entry.get("cleaned_csv"):
+            continue
+        slug = entry.get("slug", "")
+        try:
+            cleaned = extract_emails_from_csv(ROOT / entry["cleaned_csv"])
+        except (SystemExit, OSError):
+            continue
+        kept = set()
+        rel = entry.get("verified_csv")
+        if rel and (ROOT / rel).is_file():
+            kept = set(extract_emails_from_csv(ROOT / rel))
+        new = [e for e in cleaned if e not in cache and e not in kept and e not in addresses]
+        if not new:
+            continue
+        found.append((slug, len(new)))
+        for email in new:
+            addresses[email] = {
+                "status": "inferred_rejected",
+                "source": "inferred_from_completed_list",
+                "list": slug,
+                "inferred_at": stamp,
+            }
+    if apply and found:
+        save_rejected(addresses)
+    return found
 
 
 def seed_cache_from_verified(verified_csv: Path) -> int:
@@ -1111,11 +1167,26 @@ def main() -> None:
     parser.add_argument("--status", action="store_true", help="Print state and exit")
     parser.add_argument("--backfill-contacted", action="store_true",
                         help="Rebuild .pipeline/contacted.json from existing enriched CSVs and exit")
+    parser.add_argument("--backfill-rejected", action="store_true",
+                        help="Infer .reoon/rejected.json tombstones for lists that finished "
+                             "verifying but whose cache was lost (preview unless --apply)")
+    parser.add_argument("--apply", action="store_true",
+                        help="Write the changes a --backfill-* preview would make")
     args = parser.parse_args()
 
     state = load_state()
     if args.status:
         print_status(state)
+        return
+
+    if args.backfill_rejected:
+        found = backfill_rejected(state, apply=args.apply)
+        total = sum(n for _, n in found)
+        verb = "Tombstoned" if args.apply else "Would tombstone"
+        for slug, count in found:
+            print(f"  {slug}: {count} address(es) checked but not kept")
+        print(f"{verb} {total} address(es) across {len(found)} completed list(s)"
+              + ("" if args.apply else " — re-run with --apply to write"))
         return
 
     if args.backfill_contacted:
