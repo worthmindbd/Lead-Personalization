@@ -9,6 +9,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from personalization.manifest_lock import manifest_lock  # noqa: E402
+
 ENRICHED_DIR = ROOT / "leads" / "enriched"
 DEFAULT_OUT = ROOT / "leads" / "all-leads-with-email-enriched.csv"
 MANIFEST = ROOT / "campaigns" / "mix-leads-batch-manifest.json"
@@ -49,10 +53,16 @@ def merge_enriched(
     print(f"Output: {output_path}")
 
     if manifest_path.exists():
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest["merged_output"] = str(output_path.relative_to(ROOT))
-        manifest["merged_row_count"] = len(all_rows)
-        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        # Under the same lock update_batch_status takes: a worker flipping a
+        # batch to "done" between this read and this write would have its status
+        # erased, and the batch would be re-run. Safe today only because
+        # auto_merge is switched off whenever workers > 1 — which is a caller's
+        # promise, not a property of this function.
+        with manifest_lock(manifest_path):
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["merged_output"] = str(output_path.relative_to(ROOT))
+            manifest["merged_row_count"] = len(all_rows)
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     return len(all_rows)
 
