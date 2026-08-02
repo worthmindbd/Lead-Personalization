@@ -556,6 +556,70 @@ No network, no Apify calls, and no synthetic-only corpus:
   and asserts no entry is lost. It must fail against `linkedin_apify`'s current
   unlocked `_save_cache` — otherwise it is not testing anything.
 
+### ✅ Done
+
+Three commits, each proven output-neutral against the real 3,045-row list before
+the next one started.
+
+**10a — research (`39c11b5`).** `process_batch.py` 573 → 233 lines. Deleted its
+copies of `fetch_page_signals`, `render_page_signals`, `needs_render`,
+`positioning_snippet`, `classify_evidence`, `build_signal`, `linkedin_topic`,
+`linkedin_profile_matches`, `snippet_is_usable`, `social_channel`,
+`VIDEO_EVIDENCE` and `GENERIC_TITLE_PARTS`; it now calls
+`lead_personalization.research.research_lead` and injects a
+`NodePlaywrightRenderer` rather than reaching for a module global. The renderer
+is built at the call site, not at import, because `--no-render` flips
+`RENDER_FALLBACK` after the module has already loaded.
+
+*Evidence:* 3,045 real rows crossed with the real `.apify/linkedin_cache.json`,
+`urlopen` and the renderer stubbed deterministically, before and after —
+**identical**. Coverage confirmed rather than assumed: all five evidence buckets,
+both signal strengths, 1,898 profile-mismatch rows, 612 fetch failures, and 612
+rows that actually invoked the injected renderer, so the new DI path is exercised
+and not merely bypassed.
+
+**10b — LinkedIn (`89cd256`).** `linkedin_apify.py` 230 → 76 lines, rewritten as
+an environment shim: it resolves the token and cache path from `.env`, then
+delegates to `lead_personalization.linkedin`. It deliberately keeps raising
+`SystemExit` when no token is set — `process_batch` catches that to *skip*
+enrichment, and the library's `RuntimeError` would have turned "run without
+LinkedIn" into "the batch dies".
+
+*Evidence:* the helpers were byte-identical after the collapse across the whole
+real cache — 175 handles, 1,225 `li_handle` calls, 639 `clean_post_topic`, 213
+summaries, 175 `posts_for_url`. More importantly the collapse fixed a live bug.
+The old `_save_cache` neither locked nor wrote atomically, and `run_batches
+--workers N` drives it from a `ThreadPoolExecutor`. Eight threads released
+simultaneously against the pre-10b tree: **1 of 8 handles survived, 7 lost** —
+seven profiles' worth of Apify credits spent and discarded. Against the library's
+`flock` + `os.replace`: 8 of 8. `tests/test_linkedin_cache.py` pins both the lock
+and the atomicity (it monkeypatches `os.replace` to snapshot the destination
+mid-swap, so a partial write can never be visible).
+
+**10c — normalize (`this commit`).** `normalize_leads.py` 276 → 137 lines; the
+row logic now comes from `lead_personalization.pipeline`. Four of the six shared
+functions were already byte-identical and the other two differed only in
+formatting — but `pipeline.normalize_row` **never set `fit_score`**. That is the
+column `process_batch` reads to drop competitors, so anything normalized through
+the library path (the web-app/orchestrator route) would have had every skip-tier
+lead researched, written to, and exported. On this list that is 740 of 3,045
+rows — 24% of the file, and the skips are the competition: Film production
+company (228), Recording studio (53), Animation studio (48), Video editing
+service (34), Movie studio (26). Fixed in the library first, so the collapse
+subtracts nothing: the header list is now spelled once, as `DERIVED_FIELDS`,
+because the writer's `extrasaction="ignore"` would silently drop a column derived
+in one place and forgotten in the other.
+
+*Evidence:* 3,045 rows through `normalize_row` before and after — **identical**,
+distributions included (high 2,138 / skip 740 / medium 134 / low 33, zero blank).
+Run directly from a foreign cwd, outside pytest, to prove the `sys.path` wiring
+holds for `python3 scripts/...` and not just `python -m pytest`. Both new guards
+mutation-tested: dropping `fit_score` from `DERIVED_FIELDS` fails 2 tests,
+dropping it from `normalize_row` fails 10.
+
+Suite: 261 → **273 passing**. `tests/test_one_copy_engine.py` is now
+`tests/test_one_engine.py` — it guards all four halves, not just the copy one.
+
 ---
 
 ## Not doing

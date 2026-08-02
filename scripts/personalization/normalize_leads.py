@@ -1,29 +1,39 @@
 #!/usr/bin/env python3
-"""Normalize mixed lead CSV into research-ready schema."""
+"""Normalize a mixed lead CSV into the research-ready schema, on disk.
+
+The row-level normalization is ``lead_personalization.pipeline`` — this file is
+the CSV/JSON wrapper around it: where the output goes, what the header row looks
+like, and the CLI. It used to carry its own copy of the row logic; four of the
+six shared functions were already byte-identical and the other two differed only
+in formatting.
+"""
 
 from __future__ import annotations
 
 import csv
 import json
-import re
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from lead_personalization.segments import (  # noqa: E402
+from lead_personalization.pipeline import (  # noqa: E402,F401
+    DERIVED_FIELDS,
+    domain_company,
+    normalize_row,
+    parse_name_field,
+    pick_primary_email,
+    research_urls,
+    split_emails,
+)
+from lead_personalization.segments import (  # noqa: E402,F401
     BUSINESS_NAME_MARKERS,
     CATEGORY_TO_SEGMENT,
     GENERIC_EMAIL_PREFIXES,
     fit_score_for,
-    is_generic_email,
-    is_plausible_first_name,
-    is_plausible_last_name,
-    looks_like_business,
-    resolve_outreach_tier,
+    resolve_outreach_tier as outreach_tier,
     segment_for_category,
 )
 
@@ -57,153 +67,6 @@ def normalized_output_path(source: Path, row_count: int) -> Path:
     base = campaign_stem(source.stem)
     return count_named_path(base, row_count, "normalized", source.parent)
 
-TITLE_AT_PATTERN = re.compile(r"\s+at\s+", re.I)
-TITLE_DASH_PATTERN = re.compile(r"\s+[-–|]\s+")
-PERSON_NAME_PATTERN = re.compile(
-    r"^([A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)?)\s+([A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)?)$"
-)
-
-
-def split_emails(raw: str) -> list[str]:
-    parts = [p.strip() for p in (raw or "").split("|")]
-    return [p for p in parts if p and "@" in p]
-
-
-def pick_primary_email(emails: list[str]) -> str:
-    if not emails:
-        return ""
-    personal = [e for e in emails if not is_generic_email(e)]
-    return personal[0] if personal else emails[0]
-
-
-def domain_company(website: str) -> str:
-    if not website:
-        return ""
-    try:
-        host = urlparse(website.strip()).netloc.lower()
-        host = host.removeprefix("www.")
-        if not host:
-            return ""
-        base = host.split(".")[0]
-        return base.replace("-", " ").title()
-    except Exception:
-        return ""
-
-
-def parse_name_field(name: str, website: str) -> dict:
-    raw = (name or "").strip()
-    result = {
-        "first_name": "",
-        "last_name": "",
-        "title": "",
-        "company_name": "",
-    }
-    if not raw:
-        result["company_name"] = domain_company(website)
-        return result
-
-    if TITLE_AT_PATTERN.search(raw):
-        person_part, rest = TITLE_AT_PATTERN.split(raw, maxsplit=1)
-        person_part = person_part.strip()
-        rest = rest.strip()
-        match = PERSON_NAME_PATTERN.match(person_part)
-        if match:
-            result["first_name"] = match.group(1)
-            result["last_name"] = match.group(2)
-        else:
-            parts = person_part.split()
-            if len(parts) >= 2:
-                result["first_name"] = parts[0]
-                result["last_name"] = " ".join(parts[1:])
-            else:
-                result["company_name"] = person_part
-        result["title"] = rest
-        result["company_name"] = result["company_name"] or rest
-        return result
-
-    if TITLE_DASH_PATTERN.search(raw):
-        left, right = TITLE_DASH_PATTERN.split(raw, maxsplit=1)
-        left, right = left.strip(), right.strip()
-        match = PERSON_NAME_PATTERN.match(left)
-        if match and not looks_like_business(left):
-            result["first_name"] = match.group(1)
-            result["last_name"] = match.group(2)
-            result["title"] = right
-            result["company_name"] = right
-        else:
-            result["company_name"] = raw
-        return result
-
-    if looks_like_business(raw):
-        result["company_name"] = raw
-        return result
-
-    match = PERSON_NAME_PATTERN.match(raw)
-    if match:
-        result["first_name"] = match.group(1)
-        result["last_name"] = match.group(2)
-        result["company_name"] = domain_company(website) or raw
-        return result
-
-    parts = raw.split()
-    if len(parts) == 2 and parts[0][0].isupper() and not looks_like_business(raw):
-        fn, ln = parts[0], parts[1]
-        if is_plausible_first_name(fn) and is_plausible_last_name(ln):
-            result["first_name"] = fn
-            result["last_name"] = ln
-            result["company_name"] = domain_company(website) or raw
-        else:
-            result["company_name"] = raw
-    else:
-        result["company_name"] = raw
-
-    return result
-
-
-def outreach_tier(first_name: str, last_name: str, primary_email: str, raw_name: str = "") -> str:
-    return resolve_outreach_tier(first_name, last_name, primary_email, raw_name)
-
-
-def research_urls(row: dict) -> list[str]:
-    urls = []
-    for key in ("Website", "Linkedin_URL", "Instagram_URL", "Facebook_URL", "Twitter_URL"):
-        val = (row.get(key) or "").strip()
-        if val and val not in urls:
-            urls.append(val)
-    return urls
-
-
-def normalize_row(index: int, row: dict) -> dict:
-    emails = split_emails(row.get("Email", ""))
-    primary_email = pick_primary_email(emails)
-    parsed = parse_name_field(row.get("Name", ""), row.get("Website", ""))
-    company = parsed["company_name"] or domain_company(row.get("Website", "")) or (row.get("Name") or "").strip()
-    category = (row.get("First_category") or "").strip()
-    segment = segment_for_category(category)
-
-    out = dict(row)
-    out.update(
-        {
-            "row_index": str(index),
-            "primary_email": primary_email,
-            "all_emails": " | ".join(emails),
-            "company_name": company,
-            "first_name": parsed["first_name"],
-            "last_name": parsed["last_name"],
-            "title": parsed["title"],
-            "outreach_tier": outreach_tier(
-                parsed["first_name"],
-                parsed["last_name"],
-                primary_email,
-                (row.get("Name") or "").strip(),
-            ),
-            "aevora_segment": segment,
-            "fit_score": fit_score_for(segment, category),
-            "research_urls": " | ".join(research_urls(row)),
-        }
-    )
-    return out
-
 
 def normalize_leads(
     source: Path = DEFAULT_SOURCE,
@@ -215,12 +78,10 @@ def normalize_leads(
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
 
-    extra_fields = [
-        "row_index", "primary_email", "all_emails", "company_name",
-        "first_name", "last_name", "title", "outreach_tier",
-        "aevora_segment", "fit_score", "research_urls",
-    ]
-    out_fieldnames = fieldnames + [f for f in extra_fields if f not in fieldnames]
+    # Spelled once, in the module that derives them — a column added there but
+    # missing here would be computed and then silently dropped by the writer's
+    # extrasaction="ignore".
+    out_fieldnames = fieldnames + [f for f in DERIVED_FIELDS if f not in fieldnames]
     normalized = [normalize_row(i, row) for i, row in enumerate(rows)]
 
     if source != DEFAULT_SOURCE:
@@ -259,7 +120,7 @@ def normalize_leads(
         more = f" (+{len(unmapped) - 40} more)" if len(unmapped) > 40 else ""
         print(
             f"Unmapped categories -> low_fit ({len(unmapped)}): {preview}{more}\n"
-            "  Add them to scripts/personalization/segments.py CATEGORY_TO_SEGMENT "
+            "  Add them to lead_personalization/segments.py CATEGORY_TO_SEGMENT "
             "to improve targeting."
         )
     return normalized

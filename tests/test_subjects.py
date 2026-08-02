@@ -157,4 +157,4 @@ def test_hooked_batch_produces_near_unique_first_subjects() -> None:
 # There used to be a drift guard here, asserting that
 # scripts/personalization/subjects.py held the same SUBJECT_TEMPLATES as the
 # offer pack. That module is gone; the templates exist once, in the pack. See
-# tests/test_one_copy_engine.py for what replaced it.
+# tests/test_one_engine.py for what replaced it.

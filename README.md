@@ -22,20 +22,22 @@ cp .env.example .env   # then fill in your keys
 
 ## How the two packages relate
 
-`scripts/` is what runs — the pipeline, the CLIs, the research. `lead_personalization/` is the copy engine it calls, an installable package (`pip install -e .`) you can also drive from an external orchestrator (e.g. n8n).
+`lead_personalization/` is the engine — normalization, research, copy. It is an installable package (`pip install -e .`) you can drive from an external orchestrator (e.g. n8n). `scripts/` is the CLI and file orchestration around it: batch manifests, artifact paths, `.env` lookups, progress output.
 
 | Module | Purpose |
 |--------|---------|
+| `pipeline.py` | Row normalization + the in-memory research→copy path |
+| `research.py` / `renderers.py` | Page fetch, tier-2 Chromium render, evidence classification |
+| `linkedin.py` | Apify profile scrape with a file-locked, atomically-written cache |
 | `copywriter.py` | Deterministic 3-email sequence generation |
 | `offer_pack.py` + `offer_packs/*.json` | Versioned copy packs (pools + subject templates) |
 | `qa.py` / `sanitize.py` / `subjects.py` / `segments.py` | Supporting copy logic |
 | `render_page.js` | Headless-Chromium render used by the research step |
 | `config.py` | Paths, feature flags, API keys (replaces hardcoded `ROOT`) |
-| `research.py` / `renderers.py` / `linkedin.py` / `pipeline.py` | Standalone-orchestrator path; **not** what `scripts/` runs (see below) |
 
-The copy half used to exist twice — `scripts/personalization/` carried its own `qa.py`, `sanitize.py`, `segments.py`, `subjects.py` and ~370 lines of inline variant pools, held together with the library's by a parity test. Parity tests manage drift; they don't prevent it. The duplicates are gone: `scripts/personalization/process_batch.py` now imports `lead_personalization.copywriter` and loads its words from an offer pack (`--offer-pack`, default `aevora`), and `tests/test_one_copy_engine.py` fails if a second copy reappears.
+All of it used to exist twice. `scripts/personalization/` carried its own `qa.py`, `sanitize.py`, `segments.py`, `subjects.py`, ~370 lines of inline variant pools, a second research stack, a second Apify scraper, and a second normalizer. A parity test held the copy half together; nothing at all held the rest. The duplicates are gone — `process_batch.py` went 573 → 233 lines, `linkedin_apify.py` 230 → 76, `normalize_leads.py` 276 → 137, 1,079 lines down to 446 — and `tests/test_one_engine.py` fails if a second copy reappears.
 
-The **research** half is still duplicated — `lead_personalization/research.py`, `linkedin.py`, and `pipeline.py` mirror the research code in `scripts/personalization/process_batch.py` and `linkedin_apify.py`, with nothing proving they agree. Treat the `scripts/` versions as authoritative until that is collapsed too.
+Collapsing them fixed two real bugs the duplication had been hiding: the library's LinkedIn cache locks and writes atomically where the script's did not (with `--workers 8`, 7 of 8 concurrent results were being lost), and `pipeline.normalize_row` now sets `fit_score`, which it never had — the column `process_batch` reads to skip competitors, worth 740 of 3,045 rows on a real list.
 
 Run the tests:
 

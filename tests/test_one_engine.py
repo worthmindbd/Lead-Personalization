@@ -1,11 +1,11 @@
-"""There is one copy engine, and the pipeline runs it.
+"""There is one engine, and the pipeline runs it.
 
-``scripts/personalization`` used to carry a full duplicate of the copy engine:
-its own ``qa.py``, ``sanitize.py``, ``segments.py``, ``subjects.py``, and ~370
-lines of variant pools and sequence assembly inside ``process_batch.py``. Two
-parity tests held the copies together — which is a way of managing drift, not
-preventing it, and it only worked for as long as somebody kept the parity tests
-honest.
+``scripts/personalization`` used to carry a full duplicate of the pipeline:
+its own ``qa.py``, ``sanitize.py``, ``segments.py``, ``subjects.py``, ~370 lines
+of variant pools and sequence assembly, a second copy of the research stack, a
+second LinkedIn scraper, and a second normalizer. Two parity tests held the copy
+half together — which is a way of managing drift, not preventing it — and
+nothing at all held the other three halves together.
 
 These tests replace the parity guards. They fail if a second copy comes back.
 """
@@ -81,6 +81,29 @@ def test_normalize_leads_uses_the_library_segments():
 
     assert nl.segment_for_category is lp_segments.segment_for_category
     assert nl.CATEGORY_TO_SEGMENT is lp_segments.CATEGORY_TO_SEGMENT
+
+
+def test_normalize_leads_uses_the_library_row_logic():
+    from lead_personalization import pipeline as lp
+    from personalization import normalize_leads as nl
+
+    assert nl.normalize_row is lp.normalize_row
+    assert nl.parse_name_field is lp.parse_name_field
+    assert nl.split_emails is lp.split_emails
+    assert nl.domain_company is lp.domain_company
+
+
+def test_the_normalized_schema_is_spelled_once():
+    """The CSV writer uses extrasaction="ignore", so a column derived by the
+    library but missing from the header list is computed and then thrown away
+    without a word."""
+    from lead_personalization import pipeline as lp
+    from personalization import normalize_leads as nl
+
+    assert nl.DERIVED_FIELDS is lp.DERIVED_FIELDS
+    derived = set(lp.normalize_row(0, {"Name": "Acme Roofing", "Email": "a@b.com"}))
+    source = {"Name", "Email"}
+    assert derived - source == set(lp.DERIVED_FIELDS)
 
 
 def test_the_shipping_pack_is_a_real_pack():

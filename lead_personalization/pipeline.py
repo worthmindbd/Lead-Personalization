@@ -19,6 +19,7 @@ from lead_personalization.renderers import NodePlaywrightRenderer, PageRenderer
 from lead_personalization.research import research_lead
 from lead_personalization import linkedin
 from lead_personalization.segments import (
+    fit_score_for,
     is_generic_email,
     is_plausible_first_name,
     is_plausible_last_name,
@@ -31,7 +32,7 @@ from lead_personalization.segments import (
 DERIVED_FIELDS = [
     "row_index", "primary_email", "all_emails", "company_name",
     "first_name", "last_name", "title", "outreach_tier",
-    "aevora_segment", "research_urls",
+    "aevora_segment", "fit_score", "research_urls",
 ]
 
 _TITLE_AT_PATTERN = re.compile(r"\s+at\s+", re.I)
@@ -171,6 +172,10 @@ def normalize_row(index: int, row: dict) -> dict:
             (row.get("Name") or "").strip(),
         ),
         "aevora_segment": segment,
+        # Not optional: process_batch drops leads whose fit_score is "skip", so
+        # omitting this column silently promotes every skip-tier lead into the
+        # campaign. This module used not to set it at all.
+        "fit_score": fit_score_for(segment, category),
         "research_urls": " | ".join(research_urls(row)),
     })
     return out
