@@ -105,11 +105,20 @@ def _warm_linkedin_cache(targets: list[str]) -> None:
         print(f"LinkedIn warm skipped ({exc}); continuing without LinkedIn.")
 
 
-def _run_one_batch(bid: str, auto_merge: bool = True) -> tuple[str, dict | Exception]:
+def _run_one_batch(bid: str, auto_merge: bool = True) -> tuple[str, dict | BaseException]:
+    """Run one batch, returning any failure rather than raising it.
+
+    SystemExit is caught alongside Exception because the batch code raises it
+    for ordinary problems — a missing input file, an unknown batch id, a bad
+    manifest. It is a BaseException, so ``except Exception`` let it straight
+    through the worker, out of ``future.result()``, and into the main thread,
+    killing a ten-worker run over one bad batch and discarding the nine that
+    had succeeded. KeyboardInterrupt is deliberately still allowed out.
+    """
     try:
         result = process_batch(bid, SOURCE, MANIFEST, auto_merge=auto_merge)
         return bid, result
-    except Exception as exc:
+    except (Exception, SystemExit) as exc:
         return bid, exc
 
 
@@ -140,19 +149,19 @@ def run_batches(
         for i, bid in enumerate(targets, 1):
             print(f"[{i}/{len(targets)}] Processing batch {bid}...")
             _, result = _run_one_batch(bid, auto_merge=auto_merge)
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 raise result
             print(f"  -> batch {bid}: {result.get('qa_pass', '?')}/{result.get('qa_total', '?')} QA pass")
     else:
         print(f"Processing {len(targets)} batches with {workers} parallel workers...")
         completed = 0
-        failures: list[tuple[str, Exception]] = []
+        failures: list[tuple[str, BaseException]] = []
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = {pool.submit(_run_one_batch, bid, False): bid for bid in targets}
             for future in as_completed(futures):
                 bid, result = future.result()
                 completed += 1
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     failures.append((bid, result))
                     print(f"[{completed}/{len(targets)}] batch {bid} FAILED: {result}")
                 else:
