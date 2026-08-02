@@ -1,6 +1,9 @@
 """Copy engine smoke test: every segment x evidence combo must produce a
-3-email sequence that passes QA with zero sequence issues. Ported from the
-original scripts/personalization/test_copy_engine.py to the package + pytest.
+3-email sequence that passes QA with zero sequence issues.
+
+This covers ``lead_personalization``, the offer-pack refactor. Its twin,
+``test_copy_engine_shipping.py``, runs the same checks against
+``scripts/personalization`` — the engine the pipeline actually calls.
 """
 
 from __future__ import annotations

@@ -175,9 +175,28 @@ totals test over two overlapping fixture lists.
 
 ---
 
-## Step 5 — Verification correctness and failure handling
+## Step 5 — Verification correctness and failure handling ✅ done
 
-Three independent fixes, one commit each.
+Three commits: `dc5d0c5` (5a), `116ad8a` (5b), `ac7177e` (5c).
+
+**5a** now checks every address in a row, keeps the row if any passed, and
+writes that address back to the email column — a row kept on its secondary
+would otherwise send mail to the address we know is bad. Statuses count per
+address, which is what the "checked / total" line always claimed to measure.
+Confirmed a no-op on current data by running both algorithms over the same
+cache: byte-identical output for all three completed lists. 11 tests.
+
+**5b** catches SystemExit in the worker; KeyboardInterrupt still propagates so
+Ctrl-C is not filed as a batch failure. 8 tests, 3 of which fail on the old
+code. **5c** wraps the merge's manifest write in `manifest_lock`; its test
+holds the lock and asserts the merge is still blocked, and fails without it.
+6 tests.
+
+Noted while measuring, not fixed: `seed_cache_from_verified` reseeds every
+recovered address as `safe`, so regenerating a verified list downgrades a
+`role_account` label. Both are KEEP statuses, so no row changes hands — the
+Status column is just less specific than it was. Also visible: july-7's stored
+verified CSV is one row behind its own cache.
 
 **5a. Multi-address rows.** `write_verified_list`
 (`verify_emails_reoon.py:256`) only ever considers `emails[0]`, while
@@ -200,7 +219,33 @@ those raises to real exceptions) so nine healthy workers still deliver.
 
 ---
 
-## Step 6 — Close the test gaps behind Steps 1–5
+## Step 6 — Close the test gaps behind Steps 1–5 ✅ done
+
+Suite 182 → 261.
+
+The parity test's import is bare now; confirmed by hiding `process_batch.py`
+and watching collection fail instead of skip. The 127-line
+`scripts/personalization/test_copy_engine.py` had never once run — it lived in
+the package with a `__main__` block, and `testpaths = ["tests"]` meant pytest
+never saw it. Ported to `tests/test_copy_engine_shipping.py` (58 tests, one per
+segment x evidence combo plus the sanitize/QA guards) and deleted. That is the
+first coverage this suite has had of the *shipping* engine's QA and sanitize
+paths — `tests/test_copy_engine.py` only ever tested `lead_personalization`.
+Both pass, so the two engines are clean on the same inputs.
+
+`tests/test_pipeline_stages.py` adds 21: `merge_into_cumulative` (6, including
+a widening header and a mid-write failure leaving the previous file intact),
+`compute_delta`'s remaining gaps (3 — fieldnames, address-less rows, empty
+list), and `stage_verify` (12: `--no-verify`, missing and placeholder API key,
+a full cache hit, tombstones counting as checked, a rebuild when the verified
+CSV is gone, a capped run, a non-zero exit, and the row-count line). Checked
+they bite by mutating two behaviours in `run_pipeline.py` — dropping the
+tombstone term from `pending_verification` and deriving `verify_complete` from
+the row count — which fails 4 of them.
+
+Left as-is: `compute_delta` was already covered for suppression by
+`test_contacted_index.py`, so only its edges were missing.
+
 
 - `test_offer_pack_parity.py:24` swallows an import failure and skips via
   `pytestmark`, so the one test bridging the suite to the shipping engine can

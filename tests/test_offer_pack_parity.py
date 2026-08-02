@@ -10,8 +10,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
@@ -21,23 +19,19 @@ from lead_personalization.copywriter import (  # noqa: E402
 )
 from lead_personalization.offer_pack import load_offer_pack  # noqa: E402
 
-try:
-    from personalization.process_batch import (  # noqa: E402
-        OPENERS as LEGACY_OPENERS,
-        SEGMENT_COPY as LEGACY_SEGMENT_COPY,
-        fix_sequence as legacy_fix,
-        generate_sequence as legacy_generate,
-    )
-
-    LEGACY_AVAILABLE = True
-except Exception:  # noqa: BLE001
-    LEGACY_AVAILABLE = False
+# Imported bare, on purpose. This used to sit in a try/except that set
+# LEGACY_AVAILABLE = False and skipped the module — which meant the one test
+# tying this suite to the engine that actually ships could disappear while the
+# suite stayed green. If scripts/personalization stops importing, that is the
+# failure worth seeing, not a skip line nobody reads.
+from personalization.process_batch import (  # noqa: E402
+    OPENERS as LEGACY_OPENERS,
+    SEGMENT_COPY as LEGACY_SEGMENT_COPY,
+    fix_sequence as legacy_fix,
+    generate_sequence as legacy_generate,
+)
 
 PACK = load_offer_pack("aevora")
-
-pytestmark = pytest.mark.skipif(
-    not LEGACY_AVAILABLE, reason="legacy scripts/personalization not importable"
-)
 
 
 def _row(segment: str, email: str) -> dict:
