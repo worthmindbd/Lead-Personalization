@@ -12,8 +12,14 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# ROOT as well as ROOT/scripts: lead_personalization is a top-level package, and
+# without this it imports only when something else has already put the repo root
+# on the path — true under `python -m pytest`, not true for a direct
+# `python3 scripts/personalization/run_batches.py`.
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.offer_pack import OfferPackError, load_offer_pack  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization import process_batch as pb  # noqa: E402
 from personalization.merge_enriched import merge_enriched  # noqa: E402
@@ -212,6 +218,11 @@ def main() -> None:
         "(default: campaigns/mix-leads-batch-manifest.json)",
     )
     parser.add_argument(
+        "--offer-pack",
+        default=pb.OFFER_PACK_NAME,
+        help=f"Which offer pack supplies the copy (default: {pb.OFFER_PACK_NAME})",
+    )
+    parser.add_argument(
         "--no-render",
         action="store_true",
         help="Disable the headless-browser fallback for JS-rendered sites",
@@ -231,6 +242,12 @@ def main() -> None:
         pb.RENDER_FALLBACK = False
     if args.no_linkedin:
         pb.LINKEDIN_ENRICH = False
+    pb.OFFER_PACK_NAME = args.offer_pack
+    # Fail on a bad pack name here, before the first batch spends any fetches.
+    try:
+        load_offer_pack(pb.OFFER_PACK_NAME)
+    except OfferPackError as exc:
+        parser.error(str(exc))
 
     if args.all_pending:
         run_batches(all_pending=True, merge=args.merge, workers=args.workers)

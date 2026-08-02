@@ -20,20 +20,24 @@ npm install && npm run playwright:install
 cp .env.example .env   # then fill in your keys
 ```
 
-## Core library
+## How the two packages relate
 
-`lead_personalization/` is an installable package (`pip install -e .`) you can call from scripts or an external orchestrator (e.g. n8n):
+`scripts/` is what runs — the pipeline, the CLIs, the research. `lead_personalization/` is the copy engine it calls, an installable package (`pip install -e .`) you can also drive from an external orchestrator (e.g. n8n).
 
 | Module | Purpose |
 |--------|---------|
-| `config.py` | Paths, feature flags, API keys (replaces hardcoded `ROOT`) |
-| `offer_pack.py` + `offer_packs/*.json` | Versioned copy packs (pools + subject templates) |
-| `research.py` / `renderers.py` | Fetch + tiered render + signal classification |
 | `copywriter.py` | Deterministic 3-email sequence generation |
-| `pipeline.py` | `normalize_rows`, `personalize_rows` (in-memory primitives) |
-| `qa.py` / `sanitize.py` / `subjects.py` / `segments.py` / `linkedin.py` | Supporting logic |
+| `offer_pack.py` + `offer_packs/*.json` | Versioned copy packs (pools + subject templates) |
+| `qa.py` / `sanitize.py` / `subjects.py` / `segments.py` | Supporting copy logic |
+| `render_page.js` | Headless-Chromium render used by the research step |
+| `config.py` | Paths, feature flags, API keys (replaces hardcoded `ROOT`) |
+| `research.py` / `renderers.py` / `linkedin.py` / `pipeline.py` | Standalone-orchestrator path; **not** what `scripts/` runs (see below) |
 
-Run the tests (includes a parity test proving the JSON offer pack reproduces the legacy engine's copy byte-for-byte):
+The copy half used to exist twice — `scripts/personalization/` carried its own `qa.py`, `sanitize.py`, `segments.py`, `subjects.py` and ~370 lines of inline variant pools, held together with the library's by a parity test. Parity tests manage drift; they don't prevent it. The duplicates are gone: `scripts/personalization/process_batch.py` now imports `lead_personalization.copywriter` and loads its words from an offer pack (`--offer-pack`, default `aevora`), and `tests/test_one_copy_engine.py` fails if a second copy reappears.
+
+The **research** half is still duplicated — `lead_personalization/research.py`, `linkedin.py`, and `pipeline.py` mirror the research code in `scripts/personalization/process_batch.py` and `linkedin_apify.py`, with nothing proving they agree. Treat the `scripts/` versions as authoritative until that is collapsed too.
+
+Run the tests:
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -217,7 +221,7 @@ APIFY_API_TOKEN=...
 Installed locally for lead website research and browser automation. The batch
 pipeline uses it automatically: when a lead's site can't be read with a plain
 HTTP fetch (JS-built sites, bot-blocking CDNs), `process_batch.py` falls back
-to headless Chromium via `scripts/personalization/render_page.js` to extract
+to headless Chromium via `lead_personalization/render_page.js` to extract
 positioning text and video evidence. Disable with `--no-render` on
 `process_batch.py` / `run_batches.py`.
 

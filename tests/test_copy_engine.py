@@ -1,9 +1,10 @@
 """Copy engine smoke test: every segment x evidence combo must produce a
 3-email sequence that passes QA with zero sequence issues.
 
-This covers ``lead_personalization``, the offer-pack refactor. Its twin,
-``test_copy_engine_shipping.py``, runs the same checks against
-``scripts/personalization`` — the engine the pipeline actually calls.
+``lead_personalization`` is now the only copy engine — the pipeline calls it
+through ``scripts/personalization/process_batch.py``, which used to carry its
+own duplicate of all of this. So this file no longer has a twin, and covering
+it covers what ships.
 """
 
 from __future__ import annotations

@@ -9,12 +9,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.qa import qa  # noqa: E402
+from lead_personalization.sanitize import sanitize_email, sanitize_signal  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
-from personalization.qa import qa  # noqa: E402
-from personalization.sanitize import sanitize_email, sanitize_signal  # noqa: E402
 
 
 def fix_batch(

@@ -11,9 +11,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from personalization.segments import (  # noqa: E402
+from lead_personalization.segments import (  # noqa: E402
     BUSINESS_NAME_MARKERS,
     CATEGORY_TO_SEGMENT,
     GENERIC_EMAIL_PREFIXES,

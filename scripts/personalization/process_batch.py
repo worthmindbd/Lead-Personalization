@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Research leads and generate evidence-based, variant-driven copy for one batch.
+"""Research leads for one batch and hand the signals to the copy engine.
 
-Copy contract (GMB / company-tier lists):
-- Greeting is always "Hi," — no person name, no company name anywhere in the body.
-- Email structure: observed issue -> our solution -> soft CTA.
-- Openers, solutions, and CTAs are drawn from variant pools selected
-  deterministically per lead (stable re-runs, campaign-wide variety).
-- Leads with fit_score == "skip" are excluded from copy entirely.
+This file owns the *research*: fetching the site, classifying the evidence, and
+folding in LinkedIn. The copy itself — variant pools, subject templates, QA and
+sanitizing — lives in ``lead_personalization``, and the words live in a
+versioned offer pack (``lead_personalization/offer_packs/``).
+
+It used to carry its own copy of all of that: ~370 lines of pools and sequence
+assembly, duplicated from the library and kept honest only by a parity test.
+Leads with ``fit_score == "skip"`` are still excluded from copy entirely.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import html
 import json
 import re
@@ -25,20 +26,20 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
+# ROOT as well as ROOT/scripts: lead_personalization is a top-level package, and
+# without this it imports only when something else has already put the repo root
+# on the path — true under `python -m pytest`, not true for a direct
+# `python3 scripts/personalization/run_batches.py`.
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.copywriter import fix_sequence, generate_sequence  # noqa: E402
+from lead_personalization.offer_pack import OfferPackError, load_offer_pack  # noqa: E402
+from lead_personalization.qa import HARD_CTA_PATTERNS, contains_forbidden  # noqa: E402
 from personalization import artifacts, linkedin_apify  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
 from personalization.manifest_lock import update_batch_status  # noqa: E402
 from personalization.merge_enriched import merge_enriched  # noqa: E402
-from personalization.qa import (  # noqa: E402
-    HARD_CTA_PATTERNS,
-    contains_forbidden,
-    qa,
-    subject_has_spam,
-)
-from personalization.sanitize import sanitize_email  # noqa: E402
-from personalization.subjects import build_subject  # noqa: E402
 
 USER_AGENT = "Mozilla/5.0 (compatible; AevoraLeadResearch/1.0)"
 FETCH_TIMEOUT = 12
@@ -46,12 +47,16 @@ FETCH_TIMEOUT = 12
 # Headless-render fallback for JS-built sites (Wix, Squarespace, React).
 # Disable with --no-render if node/playwright is unavailable.
 RENDER_FALLBACK = True
-RENDER_SCRIPT = Path(__file__).with_name("render_page.js")
+RENDER_SCRIPT = ROOT / "lead_personalization" / "render_page.js"
 RENDER_TIMEOUT_S = 45
 
 # LinkedIn recent-post enrichment via Apify. Disable with --no-linkedin.
 LINKEDIN_ENRICH = True
 LINKEDIN_MAX_POSTS = 2
+
+# The words. Swapping packs re-skins the campaign without touching this file;
+# override with --offer-pack, the way --no-render overrides RENDER_FALLBACK.
+OFFER_PACK_NAME = "aevora"
 
 VIDEO_EVIDENCE = re.compile(
     r"youtube\.com/embed|youtube-nocookie\.com|player\.vimeo\.com|fast\.wistia"
@@ -63,249 +68,6 @@ GENERIC_TITLE_PARTS = {
     "home", "homepage", "welcome", "about", "about us", "contact", "contact us",
     "official site", "official website", "index",
 }
-
-# ---------------------------------------------------------------------------
-# Variant pools. All copy must stay clean of banned/spam/brand-forbidden terms
-# and em dashes (qa.py enforces). Never mention the company name.
-# ---------------------------------------------------------------------------
-
-OPENERS = {
-    "linkedin_posts": [
-        "Saw your recent LinkedIn post (\"{snippet}\"), so video is clearly "
-        "already part of how you show up. The lever from here is usually the "
-        "finish, not more posting.",
-        "Your recent LinkedIn post (\"{snippet}\") caught my eye. Teams posting "
-        "that consistently usually gain the most from sharper finishing on the "
-        "video side.",
-    ],
-    "site_video": [
-        "Noticed your site already runs video, which puts you ahead of most "
-        "{peer} in {loc}. The gap is usually the finish: pacing, hooks, and "
-        "captions built for each platform.",
-        "Your site embeds video, and that is rarer than it should be for {peer} "
-        "in {loc}. What separates a view from an inquiry is almost always the "
-        "finishing, not the footage.",
-    ],
-    "social_video": [
-        "Saw the {channel} link on your listing, but the site itself does not "
-        "lead with video, and that is usually the first place buyers look.",
-        "You are set up on {channel}, yet the website carries no video. For "
-        "{peer}, that is often the gap between a visit and an inquiry.",
-    ],
-    "positioning": [
-        "Your site leads with \"{snippet}\", which is clear positioning that "
-        "most {peer} never back up with finished video.",
-        "\"{snippet}\" is a strong promise on your homepage. Video is the "
-        "fastest way to make it feel real, and most {peer} skip that step.",
-    ],
-    "weak": [
-        "Most {peer} in {loc} sit on usable footage already: walkthroughs, "
-        "events, phone clips that never become finished video.",
-        "Few {peer} in {loc} publish finished video, which makes it one of the "
-        "cheapest ways to stand out right now.",
-    ],
-}
-
-SEGMENT_COPY = {
-    "creative_marketing": {
-        "solutions": [
-            "We plug in as a white-label finishing bench: retention edits, motion "
-            "graphics, and hook variants on your clients' footage, delivered "
-            "under your name.",
-            "We handle overflow post-production on client footage, retention "
-            "pacing, motion graphics, and A/B hook variants, so deliverables "
-            "ship without adding headcount.",
-        ],
-        "second_angle": [
-            "From one client master we typically deliver ten platform-native "
-            "shorts plus twenty hook variations for paid testing.",
-            "Agencies use us to turn one master edit into a full short-form "
-            "package: paced cuts, captions, and test-ready hooks.",
-        ],
-    },
-    "real_estate": {
-        "solutions": [
-            "We finish walkthrough and event footage you already shoot: pacing, "
-            "captions, and short reels cut from one master. No new shoot needed.",
-            "We turn existing walkthrough footage into listing reels and "
-            "partner-facing cuts that match a premium market position.",
-        ],
-        "second_angle": [
-            "One walkthrough typically becomes a hero tour plus a set of 15-30 "
-            "second reels sized for Instagram and YouTube.",
-            "Listings with paced, hook-led reels tend to earn attention long "
-            "before the floor plan gets read.",
-        ],
-    },
-    "professional_services": {
-        "solutions": [
-            "We turn seminars, webinars, and partner events you already record "
-            "into polished authority clips: clean cuts, captions, and motion "
-            "graphics.",
-            "We take recorded talks and client education sessions and finish "
-            "them into short, credible clips referral partners actually watch.",
-        ],
-        "second_angle": [
-            "One recorded seminar usually yields a month of short authority "
-            "clips without anyone on your team touching an editor.",
-            "Polished educational clips tend to do the trust-building that case "
-            "results alone cannot.",
-        ],
-    },
-    "medical_aesthetic": {
-        "solutions": [
-            "We finish provider and education footage you already capture: "
-            "retention pacing, clean motion graphics, and platform-ready cuts.",
-            "We turn treatment-room and education footage into clear, "
-            "professional explainers that help patients decide.",
-        ],
-        "second_angle": [
-            "Clear procedure explainers tend to convert consult inquiries better "
-            "than stock photos or static galleries.",
-            "One filming session usually becomes a full month of education clips "
-            "once the finishing is handled.",
-        ],
-    },
-    "software_tech": {
-        "solutions": [
-            "We turn screen recordings into motion-led product explainers with "
-            "hook variants for paid and organic tests.",
-            "We finish demo captures into tight explainers where the UI motion "
-            "makes the value obvious in the first ten seconds.",
-        ],
-        "second_angle": [
-            "One demo capture typically becomes a launch explainer plus a set of "
-            "feature clips for every channel.",
-            "Demos convert when the first ten seconds show the outcome, not the "
-            "onboarding.",
-        ],
-    },
-    "home_design": {
-        "solutions": [
-            "We finish site and portfolio footage you already have: cinematic "
-            "pacing, color grade, and hook-led reels cut from one master.",
-            "We turn raw project footage into reels that look as considered as "
-            "the finished build.",
-        ],
-        "second_angle": [
-            "One site capture usually becomes a hero reveal plus platform-native "
-            "reels for the same project.",
-            "High-ticket clients often judge the build quality by the reel "
-            "quality before they ever call.",
-        ],
-    },
-    "luxury_retail": {
-        "solutions": [
-            "We finish product footage into retention-first reels and ad "
-            "variants built for testing, not catalog slideshows.",
-            "We turn supplied product footage into short, crave-led cuts sized "
-            "for social and paid placements.",
-        ],
-        "second_angle": [
-            "One product shoot typically becomes a season of reels plus ad "
-            "variants for A/B testing.",
-            "Product video sells when it creates want in the first three "
-            "seconds; slideshows rarely do.",
-        ],
-    },
-    "marine_auto_lifestyle": {
-        "solutions": [
-            "We finish walkaround and showroom footage into cinematic reels that "
-            "match the price point of the inventory.",
-            "We turn existing inventory footage into showcase cuts and ad hooks "
-            "buyers at that ticket size expect.",
-        ],
-        "second_angle": [
-            "One walkaround usually becomes a hero showcase plus short cuts for "
-            "every listing channel.",
-            "High-ticket inventory moves faster when the video matches the "
-            "sticker.",
-        ],
-    },
-    "auto_services": {
-        "solutions": [
-            "We turn the before/after footage you already shoot into paced "
-            "transformation reels: clean cuts, captions, and hooks built for "
-            "each platform.",
-            "We finish shop footage into short before/after reels that show the "
-            "transformation clearly, the format that pulls the most saves and "
-            "shares.",
-        ],
-        "second_angle": [
-            "One detail or wrap job usually becomes a reveal reel plus a set of "
-            "short cuts sized for Instagram and TikTok.",
-            "Transformation reels tend to book more jobs than static gallery "
-            "photos because the result lands in the first two seconds.",
-        ],
-    },
-    "hospitality_events": {
-        "solutions": [
-            "We finish event footage into highlight reels and platform-native "
-            "shorts while the moment still matters.",
-            "We turn raw event coverage into recap films and social cuts that "
-            "extend an event's reach for weeks.",
-        ],
-        "second_angle": [
-            "One event capture usually becomes a recap film plus a set of shorts "
-            "for every channel.",
-            "Recap video finished within the week tends to outperform raw clips "
-            "posted late.",
-        ],
-    },
-    "low_fit": {
-        "solutions": [
-            "We finish footage you already have, phone clips, events, "
-            "walkthroughs, with retention pacing and clean graphics.",
-            "We handle the edit and finishing on media you provide, so "
-            "publishing video stops depending on spare time.",
-        ],
-        "second_angle": [
-            "Most teams sit on more usable footage than they think; finishing is "
-            "the missing step.",
-            "One batch of existing clips is usually enough for a month of "
-            "finished posts.",
-        ],
-    },
-}
-
-CTA_POOLS = {
-    1: [
-        "Interested in a sample edit from one clip you already have?",
-        "Worth a short sample cut from your existing footage?",
-        "Want a sample edit matched to your style of work?",
-    ],
-    2: [
-        "Want an example of how we'd structure that?",
-        "Open to one before/after example?",
-        "Useful if I send a short example matched to your niche?",
-    ],
-    3: [
-        "When footage gets shot on your side, who finishes it, or does it wait?",
-        "Open to a ten-minute call to see if this maps to how you work?",
-        "Want one sample cut so you can judge the finish directly?",
-    ],
-}
-
-CLOSERS = [
-    "Last note from me: most teams we work with didn't lack footage, they "
-    "lacked finishing time.",
-    "Closing the loop here. Publishing finished video consistently is nearly "
-    "always a bandwidth problem, not a content problem.",
-]
-
-SUPPORT_LINES = [
-    "If it's backlog, we run as a quiet post-production bench on footage you "
-    "supply.",
-    "If it's bandwidth, that's exactly the gap we fill: post-production only, "
-    "on your media.",
-]
-
-
-def _pick(pool: list[str], key: str, salt: str) -> tuple[str, int]:
-    digest = int(hashlib.md5(f"{salt}:{key}".encode()).hexdigest(), 16)
-    idx = digest % len(pool)
-    return pool[idx], idx
-
 
 # ---------------------------------------------------------------------------
 # Research
@@ -637,126 +399,6 @@ def research_lead(row: dict, li_scraped: dict | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Copy
-# ---------------------------------------------------------------------------
-
-
-def peer_phrase(category: str) -> str:
-    cat = (category or "").strip().lower()
-    return f"{cat} teams" if cat else "teams in your space"
-
-
-def generate_sequence(row: dict, research: dict) -> tuple[list[tuple[str, str]], str]:
-    """Build the 3-email sequence. Returns (sequence, copy_variant)."""
-    email = research.get("email") or row.get("primary_email", "")
-    segment = row.get("aevora_segment", "low_fit")
-    seg_copy = SEGMENT_COPY.get(segment, SEGMENT_COPY["low_fit"])
-    evidence = research.get("evidence", "weak")
-    snippet = research.get("snippet", "")
-    li_topic = research.get("linkedin_topic", "")
-    channel = research.get("social_channel", "") or "social"
-    company = (row.get("company_name") or research.get("company") or "").strip()
-    city = (row.get("City") or "").strip()
-    state = (row.get("State") or "").strip()
-    loc = city or state or "your market"
-    # If the company name was parsed as its city, injecting that location would
-    # leak the company name into the body — use the state or a neutral phrase.
-    if company and loc and loc.lower() in company.lower():
-        loc = state if (state and state.lower() not in company.lower()) else "your area"
-    peer = peer_phrase(row.get("First_category", ""))
-
-    greeting = "Hi,"
-
-    opener_tmpl, o_idx = _pick(OPENERS[evidence], email, "opener")
-    opener = opener_tmpl.format(
-        peer=peer, loc=loc, snippet=(li_topic if evidence == "linkedin_posts" else snippet),
-        channel=channel,
-    )
-
-    solution, s_idx = _pick(seg_copy["solutions"], email, "solution")
-    alt_solution = seg_copy["solutions"][(s_idx + 1) % len(seg_copy["solutions"])]
-    angle2, a_idx = _pick(seg_copy["second_angle"], email, "angle2")
-    closer, cl_idx = _pick(CLOSERS, email, "closer")
-    support, su_idx = _pick(SUPPORT_LINES, email, "support")
-    cta1, c1 = _pick(CTA_POOLS[1], email, "cta1")
-    cta2, c2 = _pick(CTA_POOLS[2], email, "cta2")
-    cta3, c3 = _pick(CTA_POOLS[3], email, "cta3")
-
-    plans = [
-        [opener, solution, cta1],
-        [angle2, alt_solution, cta2],
-        [closer, support, cta3],
-    ]
-
-    variant = f"{evidence}.o{o_idx}s{s_idx}a{a_idx}cl{cl_idx}su{su_idx}c{c1}{c2}{c3}"
-
-    hook = (li_topic if evidence == "linkedin_posts" else snippet) or ""
-    sequence: list[tuple[str, str]] = []
-    used_subjects: set[str] = set()
-    for step, parts in enumerate(plans, start=1):
-        body = trim_body(greeting, parts[:-1], parts[-1])
-        subj = build_subject(
-            row,
-            research.get("research_signal", ""),
-            segment,
-            step,
-            used_subjects=used_subjects,
-            hook=hook,
-            key=email,
-        )
-        sequence.append((subj, body))
-
-    return sequence, variant
-
-
-def trim_body(greeting: str, parts: list[str], cta: str, max_words: int = 100) -> str:
-    body_parts = parts[:]
-    while body_parts:
-        body = "\n\n".join([greeting] + body_parts + [cta])
-        if len(re.findall(r"\b\w+\b", body)) <= max_words:
-            return body
-        if len(body_parts) > 1:
-            body_parts = body_parts[:-1]
-        else:
-            short = body_parts[0]
-            words = short.split()
-            body_parts[0] = " ".join(words[: max(8, len(words) - 5)])
-    return "\n\n".join([greeting, cta])
-
-
-def fix_sequence(
-    sequence: list[tuple[str, str]],
-    row: dict,
-    research: dict,
-) -> list[tuple[str, str]]:
-    segment = row.get("aevora_segment", "low_fit")
-    company = research.get("company", "")
-    signal = research.get("research_signal", "")
-    key = research.get("email") or row.get("primary_email", "")
-    fixed = []
-    used_subjects: set[str] = set()
-    for step, (subj, body) in enumerate(sequence, start=1):
-        if subject_has_spam(subj) or len(subj) > 60 or subj in used_subjects:
-            subj = build_subject(
-                row, signal, segment, step, used_subjects=used_subjects, key=key
-            )
-        if len(subj) > 60:
-            cut = subj[:60]
-            subj = cut[: cut.rfind(" ")] if " " in cut else cut
-        body = body.replace("—", "-").replace("\u2026", "")
-        subj, body = sanitize_email(subj, body)
-        q = qa(subj, body, company)
-        if not q["pass"] and q["word_count"] > 100:
-            lines = body.split("\n\n")
-            while len(lines) > 2 and qa(subj, "\n\n".join(lines), company)["word_count"] > 100:
-                lines.pop(-2)
-            body = "\n\n".join(lines)
-        used_subjects.add(subj)
-        fixed.append((subj, body))
-    return fixed
-
-
-# ---------------------------------------------------------------------------
 # Batch driver
 # ---------------------------------------------------------------------------
 
@@ -836,11 +478,12 @@ def process_batch(
 
     research_out = []
     copy_out = {}
+    offer_pack = load_offer_pack(OFFER_PACK_NAME)
 
     for row in batch_rows:
         item = research_lead(row, li_scraped)
-        seq, variant = generate_sequence(row, item)
-        seq = fix_sequence(seq, row, item)
+        seq, variant = generate_sequence(row, item, offer_pack)
+        seq = fix_sequence(seq, row, item, offer_pack)
         item["copy_variant"] = variant
         research_out.append(item)
         copy_out[item["email"]] = [[s, b] for s, b in seq]
@@ -880,12 +523,17 @@ def process_batch(
 
 
 def main() -> None:
-    global RENDER_FALLBACK, LINKEDIN_ENRICH
+    global RENDER_FALLBACK, LINKEDIN_ENRICH, OFFER_PACK_NAME
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch-id", required=True)
     parser.add_argument("--source", default="leads/all-leads-with-email-normalized.csv")
     parser.add_argument("--manifest", default=str(artifacts.manifest_path().relative_to(ROOT)))
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument(
+        "--offer-pack",
+        default=OFFER_PACK_NAME,
+        help=f"Which offer pack supplies the copy (default: {OFFER_PACK_NAME})",
+    )
     parser.add_argument(
         "--no-render",
         action="store_true",
@@ -902,6 +550,13 @@ def main() -> None:
         RENDER_FALLBACK = False
     if args.no_linkedin:
         LINKEDIN_ENRICH = False
+    OFFER_PACK_NAME = args.offer_pack
+    # Load it now rather than after the research loop: a bad pack name should
+    # cost nothing, not a batch's worth of fetches and Apify credits.
+    try:
+        load_offer_pack(OFFER_PACK_NAME)
+    except OfferPackError as exc:
+        parser.error(str(exc))
 
     source = Path(args.source)
     manifest = Path(args.manifest)

@@ -11,10 +11,11 @@ from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.qa import qa, sequence_issues  # noqa: E402
 from personalization import artifacts  # noqa: E402
-from personalization.qa import qa, sequence_issues  # noqa: E402
 
 DELAYS = [0, 3, 7]
 

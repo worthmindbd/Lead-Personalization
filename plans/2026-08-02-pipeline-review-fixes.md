@@ -342,6 +342,88 @@ Make `scripts/personalization` import from `lead_personalization` so drift is
 impossible and the parity test becomes unnecessary rather than load-bearing.
 Sequence Step 1 before this, or fold the two subject edits together.
 
+**Design.** `scripts/personalization` keeps the pipeline plumbing (research,
+batching, artifacts, export) and stops carrying its own copy of the copy engine.
+
+- Delete `scripts/personalization/{qa,sanitize,segments,subjects}.py`. Three are
+  duplicates modulo one import line; `subjects.py` differs only in that
+  `SUBJECT_TEMPLATES` is a module constant instead of a `build_subject`
+  argument, and `tests/test_subjects.py` already asserts the two are equal.
+- Delete `process_batch.py`'s `OPENERS`, `SEGMENT_COPY`, `CTA_POOLS`, `CLOSERS`,
+  `SUPPORT_LINES`, `_pick`, `peer_phrase`, `trim_body`, `generate_sequence`,
+  `fix_sequence` (~370 lines). The two call sites take the offer pack:
+  `generate_sequence(row, item, OFFER_PACK)` / `fix_sequence(seq, row, item, OFFER_PACK)`.
+- `OFFER_PACK = load_offer_pack("aevora")` at module level, with `--offer-pack`
+  to swap it. The hardcoded pools become one JSON file that already exists.
+- Every affected module adds `ROOT` to `sys.path` beside `ROOT/"scripts"` —
+  otherwise `import lead_personalization` only works because `python -m pytest`
+  happens to put the repo root on the path, which a direct
+  `python3 scripts/personalization/run_batches.py` does not.
+- `scripts/personalization/render_page.js` is byte-identical to the library's;
+  point `RENDER_SCRIPT` at that one and delete the copy.
+
+**Tests.** `tests/test_offer_pack_parity.py` and `tests/test_copy_engine_shipping.py`
+both go: with one engine there is nothing to compare and nothing separate to
+smoke-test. So does `test_subjects.py::test_shipping_engine_templates_match_the_offer_pack`.
+Their coverage is not lost — `tests/test_copy_engine.py` runs the same
+segment × evidence matrix against the surviving engine. What replaces them is a
+test that the shipping path *is* the library path: `process_batch` exposes no
+copy pools of its own, and its generate/fix names resolve to
+`lead_personalization.copywriter`.
+
+**Verify.** The parity test proves byte-for-byte equality across every
+segment × evidence combination, so this must not change a single character of
+output. Snapshot the shipping engine's copy for the full matrix before the
+change and diff it against the same matrix after. Then run the scripts directly
+(not through pytest) to prove the `sys.path` change is real.
+
+**Out of scope, and still duplicated afterwards.** `lead_personalization/research.py`,
+`linkedin.py` and `pipeline.py` duplicate `process_batch.py`'s research code and
+`linkedin_apify.py`. That is the larger half of the split and nothing imports it
+in production either — see Step 10. Step 8 collapses the copy engine only, which
+is the half the parity test covers and therefore the half that can be moved
+without guessing.
+
+### ✅ Done
+
+`process_batch.py` went 918 → 573 lines. The four duplicate modules and the
+duplicate `render_page.js` are deleted; `qa`, `sanitize`, `segments`, `subjects`
+and `copywriter` now exist once each, in `lead_personalization`.
+
+**Output is unchanged, and this was checked against the real prior code rather
+than asserted.** `git archive bdbb9d0` into a scratch dir, ran the same
+segment × evidence × 6-leads matrix (330 leads, 990 emails) through the old
+inline engine and the new library one, diffed the two JSON dumps: **identical
+byte-for-byte**, subjects, bodies and `copy_variant` included.
+
+**The guards bite.** Re-adding an `OPENERS` pool to `process_batch.py`, wrapping
+`generate_sequence` in a local shim, and touching a second
+`scripts/personalization/render_page.js` produced 3 failures in
+`tests/test_one_copy_engine.py`. Restored and confirmed identical to the backup.
+
+**Two things the plan promised and this delivered beyond it:**
+
+- `--offer-pack` exists on both `process_batch.py` and `run_batches.py`, and it
+  accepts a path as well as a pack name. It is validated *at argument-parse
+  time*, not at first use — a typo used to be discoverable only after the batch
+  had spent its fetches and Apify credits. Bad names now exit 2 with
+  `error: offer pack not found: ...` instead of a mid-run traceback.
+- The `sys.path` fix is real: `run_batches.py`, `process_batch.py`,
+  `build_enriched.py`, `apply_sanitize_all.py` and `normalize_leads.py` were each
+  run directly with `.venv/bin/python`, outside pytest. All import.
+
+**Tests:** 289 → 244. The drop is deletions, not lost coverage —
+`test_offer_pack_parity.py` (44 parametrized parity cases over an engine that no
+longer exists) and `test_copy_engine_shipping.py` (a duplicate of
+`test_copy_engine.py`) are gone, replaced by 16 in `test_one_copy_engine.py`.
+`test_copy_engine.py` still runs the full segment × evidence matrix, and it now
+covers what ships rather than one of two things that ship.
+
+**Also fixed while here:** the README led with "Core library" describing
+`lead_personalization/` as the thing you use, above the `scripts/` code that
+actually runs. It now says which is which, and says plainly that the research
+half is still duplicated and that `scripts/` is authoritative there.
+
 ---
 
 ## Step 9 — Housekeeping
@@ -349,6 +431,17 @@ Sequence Step 1 before this, or fold the two subject edits together.
 - Delete `scripts/archive/` (9,409 lines of one-off scripts; git has them).
 - README leads with `lead_personalization/` as "Core library" above the code that
   actually runs — one line clarifying which is which.
+
+---
+
+## Step 10 — Collapse the research half
+
+Step 8 leaves `lead_personalization/research.py`, `linkedin.py` and `pipeline.py`
+duplicating `process_batch.py`'s research code and `linkedin_apify.py`. Nothing
+imports them in production, and unlike the copy engine there is no parity test
+proving the two produce the same signals — so this needs its own before/after
+snapshot over real leads, not a mechanical swap. Bigger and riskier than Step 8;
+worth doing, not worth rushing into the same commit.
 
 ---
 
