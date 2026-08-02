@@ -5,6 +5,11 @@ Reads .pipeline/state.json (written by run_pipeline.py) plus the per-list stage
 CSVs under leads/pipeline/<slug>/ and writes Report.csv at the project root:
 one row per list, plus a TOTAL row.
 
+Per-list columns count that list's own rows — what you see when you open its
+CSV. The TOTAL row counts *people*. The Drive lists overlap heavily, so summing
+the columns invents work that does not exist: 17,243 pending against 15,634 real
+addresses, which at 500 verifications a day is three days of imaginary budget.
+
 This script is strictly READ-ONLY with respect to pipeline state: it never
 writes to state.json or any working file. It is safe to run repeatedly while
 run_pipeline.py is actively rewriting state — state.json reads retry on a
@@ -26,12 +31,26 @@ from pathlib import Path
 import sheets_sync
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from verify_emails_reoon import (  # noqa: E402
+    CACHE_FILE as REOON_CACHE_FILE,
+    REJECTED_FILE as REOON_REJECTED_FILE,
+    extract_emails_from_csv,
+)
+
 STATE_FILE = ROOT / ".pipeline" / "state.json"
 WORK_ROOT = ROOT / "leads" / "pipeline"
 REPORT_FILE = ROOT / "Report.csv"
 # Title of the native Google Sheet in the Drive root that --upload keeps in sync.
 DRIVE_SHEET_NAME = "Enrichment-Reports"
 
+# KEEP THIS AT TEN. sheets_sync writes columns A..<len(COLUMNS)> of the
+# Enrichment-Reports sheet; column K holds a hand-maintained "Imported to
+# Campaign?" column, and an eleventh entry here would overwrite it on the next
+# sync. To show something new, spend one of the ten — which is what
+# `unique_pending` did to `verify_complete` (a boolean that only ever restated
+# `pending_verification == 0`).
 COLUMNS = [
     "list_title",
     "stage",
@@ -40,18 +59,27 @@ COLUMNS = [
     "verified_leads",
     "personalized_leads",
     "pending_verification",
+    "unique_pending",
     "pending_personalization",
-    "verify_complete",
     "last_updated",
 ]
 
-# Columns summed in the TOTAL row.
-NUMERIC_COLUMNS = [
-    "raw_leads",
+# TOTAL counts distinct addresses across every list, so the overlap is counted
+# once. `unique_pending` is each list's share of the pending total (an address
+# on two lists belongs to the older one), so this column still sums — that is
+# what makes the difference between the two pending figures legible.
+UNIQUE_COLUMNS = [
     "cleaned_leads",
     "verified_leads",
     "personalized_leads",
     "pending_verification",
+]
+
+# Raw rows are not addresses yet (heterogeneous XLSX/CSV sources), and the
+# personalization delta is an in-flight count from state. Both stay sums.
+SUMMED_COLUMNS = [
+    "raw_leads",
+    "unique_pending",
     "pending_personalization",
 ]
 
@@ -78,6 +106,50 @@ def load_state_safely(path: Path, attempts: int = 3, delay: float = 0.4) -> dict
     print(f"WARNING: could not read {path} cleanly ({last_err}); reporting empty.",
           file=sys.stderr)
     return {"version": 1, "lists": {}}
+
+
+def read_json_quietly(path: Path) -> dict:
+    """Load a JSON object, or {} for anything that goes wrong.
+
+    The report is a monitor: a missing or half-written runtime file should cost
+    one number, not the whole report.
+    """
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def checked_addresses() -> set[str]:
+    """Addresses that would no longer cost a Reoon credit.
+
+    The same rule the verifier applies when it decides what to send: a cached
+    result, or a tombstone recording a result the cache has since lost. Reading
+    them here rather than trusting state's ``pending_verification`` is the
+    point — reconcile hard-sets that field to 0 for a list it has marked done,
+    so the sheet reported a 0 that had been asserted rather than measured.
+    """
+    checked = set(read_json_quietly(REOON_CACHE_FILE))
+    tombstones = read_json_quietly(REOON_REJECTED_FILE).get("addresses")
+    if isinstance(tombstones, dict):
+        checked |= set(tombstones)
+    return checked
+
+
+def addresses(path: Path | None) -> set[str] | None:
+    """Unique lowercased addresses in a stage CSV; None if it cannot be read.
+
+    None and the empty set mean different things here: an unreadable cleaned
+    list is an *unknown* backlog, and reporting it as zero would mark a list
+    finished on the strength of a bad file.
+    """
+    if not path or not path.is_file():
+        return None
+    try:
+        return set(extract_emails_from_csv(path))
+    except (SystemExit, OSError, UnicodeDecodeError, csv.Error):
+        return None
 
 
 def csv_data_rows(path: Path) -> int | None:
@@ -142,12 +214,20 @@ def blank_if_none(value: int | None) -> object:
     return "" if value is None else value
 
 
-def build_rows(state: dict) -> list[dict]:
+def build_rows(state: dict) -> tuple[list[dict], dict[str, int]]:
+    """One row per list, oldest first, plus the unique-address totals.
+
+    Lists are walked oldest-first so an address shared by two of them is
+    attributed to the one that has been working on it longer — the same rule
+    the contacted index uses, so the two never disagree about who owns a lead.
+    """
     lists = state.get("lists", {})
     ordered = sorted(
         lists.keys(),
         key=lambda t: (lists[t].get("drive_mtime") or lists[t].get("discovered_at") or "", t),
     )
+    checked = checked_addresses()
+    union: dict[str, set[str]] = {col: set() for col in UNIQUE_COLUMNS}
     rows: list[dict] = []
     for title in ordered:
         entry = lists[title]
@@ -168,6 +248,26 @@ def build_rows(state: dict) -> list[dict]:
             [raw_path, cleaned, verified, enriched]
         )
 
+        cleaned_set = addresses(cleaned)
+        pending_set = None if cleaned_set is None else cleaned_set - checked
+        if pending_set is None:
+            # No readable cleaned list: report the last figure the pipeline
+            # recorded rather than inventing a zero.
+            pending_n = entry.get("pending_verification")
+            unique_n = None
+        else:
+            pending_n = len(pending_set)
+            unique_n = len(pending_set - union["pending_verification"])
+
+        for col, found in (
+            ("cleaned_leads", cleaned_set),
+            ("verified_leads", addresses(verified)),
+            ("personalized_leads", addresses(enriched)),
+            ("pending_verification", pending_set),
+        ):
+            if found:
+                union[col] |= found
+
         rows.append(
             {
                 "list_title": title,
@@ -176,20 +276,27 @@ def build_rows(state: dict) -> list[dict]:
                 "cleaned_leads": cleaned_n if cleaned_n is not None else 0,
                 "verified_leads": verified_n if verified_n is not None else 0,
                 "personalized_leads": enriched_n if enriched_n is not None else 0,
-                "pending_verification": blank_if_none(entry.get("pending_verification")),
+                "pending_verification": blank_if_none(pending_n),
+                "unique_pending": blank_if_none(unique_n),
                 "pending_personalization": blank_if_none(entry.get("pending_delta")),
-                "verify_complete": entry.get("verify_complete", ""),
                 "last_updated": last_updated,
             }
         )
-    return rows
+    return rows, {col: len(found) for col, found in union.items()}
 
 
-def total_row(rows: list[dict]) -> dict:
+def total_row(rows: list[dict], unique: dict[str, int]) -> dict:
+    """The TOTAL row: distinct addresses where the columns describe people.
+
+    Summing them instead is how the sheet came to claim 17,243 addresses left
+    to verify when only 15,634 exist.
+    """
     total = {c: "" for c in COLUMNS}
     total["list_title"] = "TOTAL"
-    for col in NUMERIC_COLUMNS:
+    for col in SUMMED_COLUMNS:
         total[col] = sum(int(r[col]) for r in rows if isinstance(r[col], int))
+    for col in UNIQUE_COLUMNS:
+        total[col] = unique.get(col, 0)
     return total
 
 
@@ -250,13 +357,18 @@ def main() -> None:
     args = parser.parse_args()
 
     state = load_state_safely(STATE_FILE)
-    rows = build_rows(state)
-    all_rows = rows + [total_row(rows)]
+    rows, unique = build_rows(state)
+    all_rows = rows + [total_row(rows, unique)]
     write_report(all_rows)
     print(f"Lead pipeline progress report — {len(rows)} list(s)")
     print(f"Read state: {STATE_FILE.relative_to(ROOT)} (read-only)")
     print(f"Wrote:      {REPORT_FILE.relative_to(ROOT)}\n")
     print_table(all_rows)
+    print(
+        "\nTOTAL counts distinct addresses, not a column sum — the lists overlap.\n"
+        "unique_pending is each list's own share of that pending total, so that\n"
+        "column does sum to it; the address goes to the older of the two lists."
+    )
     if args.upload:
         print()
         upload_to_drive(all_rows, args.remote, args.dry_run)

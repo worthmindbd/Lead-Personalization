@@ -138,7 +138,26 @@ what the lost cache knew.
 
 ---
 
-## Step 4 — Report totals count unique work
+## Step 4 — Report totals count unique work ✅ done
+
+TOTAL now counts distinct addresses; `unique_pending` carries each list's own
+share (older list wins a tie) so the column still sums to it. Pending is
+recomputed live from the cleaned CSVs against the cache + tombstones instead of
+being read from state, so a `done` list reads 0 only when its addresses are
+accounted for. Live sheet after sync: 12,379 pending (was a 17,243 sum against a
+stale 14,826 on the sheet), 20,646 unique cleaned against a 23,917 column sum,
+4,769 unique personalized — matching the contacted index exactly.
+
+One thing the plan did not know: **column K of the sheet is a hand-maintained
+`Imported to Campaign?` column with real values**, and `sheets_sync` writes
+`A..len(COLUMNS)`. Adding an eleventh column would have overwritten it on the
+next run. So `unique_pending` took the slot of `verify_complete` — a boolean
+that only ever restated `pending_verification == 0` and that nothing read. The
+column count is now asserted at 10 by a test that says why. Verified by dry-run
+before applying, and re-read afterwards: K still holds its TRUE/FALSE values.
+12 new tests in `tests/test_report_totals.py`; `test_sheets_sync.py` now imports
+the real `COLUMNS` instead of keeping a copy that could drift.
+
 
 **Problem.** `report.py:188` sums per-list columns. Summing
 `pending_verification` gives 17,243 against 15,634 unique addresses; the 14,826

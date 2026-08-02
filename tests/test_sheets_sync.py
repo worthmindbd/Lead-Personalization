@@ -20,11 +20,7 @@ from sheets_sync import (  # noqa: E402
     plan_writes,
 )
 
-COLUMNS = [
-    "list_title", "stage", "raw_leads", "cleaned_leads", "verified_leads",
-    "personalized_leads", "pending_verification", "pending_personalization",
-    "verify_complete", "last_updated",
-]
+from report import COLUMNS  # noqa: E402 — the real set, so A..J stays honest
 
 # The live sheet: header + six lists + TOTAL.
 SHEET_COLUMN_A = [
@@ -138,7 +134,7 @@ def test_empty_report_refuses_to_write() -> None:
 
 
 def test_values_follow_column_order() -> None:
-    rows = [row("July 6,2026", stage="done", raw_leads=14901, verify_complete=True),
+    rows = [row("July 6,2026", stage="done", raw_leads=14901, last_updated="2026-08-01"),
             row("TOTAL")]
     plan = plan_writes(SHEET_COLUMN_A, COLUMNS, rows, COLUMNS)
 
@@ -146,4 +142,4 @@ def test_values_follow_column_order() -> None:
     assert values[0] == "July 6,2026"
     assert values[1] == "done"
     assert values[2] == 14901
-    assert values[8] is True
+    assert values[-1] == "2026-08-01"

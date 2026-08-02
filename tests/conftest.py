@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "pipeline"))
 
+import report  # noqa: E402
 import run_pipeline as rp  # noqa: E402
 
 
@@ -26,4 +27,11 @@ def isolate_runtime_state(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(rp, "REOON_REJECTED_FILE", scratch / ".reoon" / "rejected.json")
     monkeypatch.setattr(rp, "CONTACTED_FILE", scratch / ".pipeline" / "contacted.json")
     monkeypatch.setattr(rp, "STATE_FILE", scratch / ".pipeline" / "state.json")
+    # report.py reads the same cache and tombstones to compute pending live, and
+    # writes Report.csv at the repo root — none of which a test should touch.
+    monkeypatch.setattr(report, "REOON_CACHE_FILE", scratch / ".reoon" / "verified_cache.json")
+    monkeypatch.setattr(report, "REOON_REJECTED_FILE", scratch / ".reoon" / "rejected.json")
+    monkeypatch.setattr(report, "WORK_ROOT", scratch / "leads" / "pipeline")
+    monkeypatch.setattr(report, "STATE_FILE", scratch / ".pipeline" / "state.json")
+    monkeypatch.setattr(report, "REPORT_FILE", scratch / "Report.csv")
     return scratch
