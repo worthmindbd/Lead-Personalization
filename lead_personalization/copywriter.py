@@ -16,7 +16,7 @@ import hashlib
 import re
 
 from lead_personalization.offer_pack import OfferPack
-from lead_personalization.qa import qa, subject_has_spam
+from lead_personalization.qa import qa, subject_has_spam, subject_is_fragment
 from lead_personalization.sanitize import sanitize_email
 from lead_personalization.subjects import build_subject
 
@@ -137,7 +137,7 @@ def fix_sequence(
     fixed = []
     used_subjects: set[str] = set()
     for step, (subj, body) in enumerate(sequence, start=1):
-        if subject_has_spam(subj) or len(subj) > 60 or subj in used_subjects:
+        if subject_has_spam(subj) or subject_is_fragment(subj) or len(subj) > 60 or subj in used_subjects:
             subj = build_subject(
                 row, signal, segment, step, offer_pack.subject_templates,
                 used_subjects=used_subjects, key=key,

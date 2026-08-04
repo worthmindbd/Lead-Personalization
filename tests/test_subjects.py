@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from lead_personalization.offer_pack import load_offer_pack  # noqa: E402
-from lead_personalization.qa import subject_has_spam  # noqa: E402
+from lead_personalization.qa import subject_has_spam, subject_is_fragment  # noqa: E402
 from lead_personalization.subjects import build_subject  # noqa: E402
 
 PACK = load_offer_pack("aevora")
@@ -113,6 +113,75 @@ def test_over_length_subject_is_cut_at_a_word_boundary() -> None:
     )
     assert len(subj) <= 50
     assert subj.split()[-1] in (long_city.lower().split() + ["custom", "reel"])
+
+
+# ---------------------------------------------------------------------------
+# A hook must never leave a truncated fragment on the subject line
+# ---------------------------------------------------------------------------
+
+# Real Meta_Descriptions from the 2026-08-03 July 8 run that produced dangling
+# subjects ("a wide selection of", "able company ltd is the", ...). Each is a
+# regression case for the fragment fix.
+HOSTILE_METAS = [
+    "Discover a wide selection of high-quality household goods & Kitchen Appliances at attardsmalta.com",
+    "C. Fino + Sons Limited is one of the oldest and most reputable furniture houses in Malta.",
+    "Primal Fitness Malta -Fitness classes and personal training",
+    "Hair by Marie offers a wide range of services, including hair styling, hair colouring",
+    "With its wide variety of beauty and relaxation therapies, sauna, indoor pool, and hydrobath",
+    "Able Company Ltd is the official distributor for the Fujitsu General Brand supplying air conditioning",
+    "Satariano transform Houses into Homes: Creating Warmth, Comfort, and Memories.",
+    "This is the homepage of the Finz Aquatics Club",
+    # a clean, coherent meta — must still produce a hook, not be dropped
+    "Award-winning coastal architecture studio designing bespoke residences",
+]
+
+
+@pytest.mark.parametrize("segment", SEGMENTS)
+@pytest.mark.parametrize("step", STEPS)
+@pytest.mark.parametrize("meta", HOSTILE_METAS)
+def test_subject_never_ends_on_function_word(segment: str, step: int, meta: str) -> None:
+    """A prospect-supplied hook cut to the length cap must end on a content word.
+
+    Before the fix, ``_clean`` cut at a word boundary but not a phrase
+    boundary, so 126 July 8 subjects shipped as fragments ("a wide selection
+    of"). build_subject now rejects any candidate ending on a function word and
+    falls back to a literal template, which never does.
+    """
+    lead = row() | {"Meta_Description": meta}
+    used: set[str] = set()
+    subj = build_subject(
+        lead, "", segment, step, PACK.subject_templates,
+        used_subjects=used, key=lead["primary_email"],
+    )
+    assert subj, f"{segment}/{step}: empty subject for meta {meta!r}"
+    assert not subject_is_fragment(subj), (
+        f"{segment}/{step}: subject {subj!r} ends on a function word (meta {meta!r})"
+    )
+    assert not subject_has_spam(subj)
+    assert "{" not in subj  # no unfilled placeholder
+
+
+def test_directly_passed_hook_is_trimmed_to_a_content_word() -> None:
+    """The hook the copywriter passes (the research snippet) gets the same
+    coherent trim as a meta-derived hook, not a blind word slice."""
+    subj = subject("a wide selection of high-quality household goods", step=1)
+    assert not subject_is_fragment(subj)
+    # the salvaged hook is shorter than the source but still coherent
+    assert subj  # something shipped
+
+
+def test_no_hook_no_fragment_fallback() -> None:
+    """A lead with no usable hook still gets a clean literal subject — the
+    fragment guard never forces an empty candidate list."""
+    lead = row() | {"Meta_Description": "the of and"}
+    for step in STEPS:
+        used: set[str] = set()
+        subj = build_subject(
+            lead, "", "home_design", step, PACK.subject_templates,
+            used_subjects=used, key=lead["primary_email"],
+        )
+        assert subj
+        assert not subject_is_fragment(subj)
 
 
 def _fill_template(template: str, city: str, hook: str, category: str) -> str:

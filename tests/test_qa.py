@@ -7,6 +7,7 @@ from lead_personalization.qa import (
     greeting_is_valid,
     qa,
     subject_has_spam,
+    subject_is_fragment,
     word_count,
 )
 
@@ -55,3 +56,23 @@ def test_qa_flags_banned_phrase() -> None:
     result = qa("clean subject", "Hi,\n\nJust following up on my last note.\n\nThoughts?")
     assert result["pass"] is False
     assert any(i.startswith("banned:") for i in result["issues"])
+
+
+def test_subject_fragment_detection() -> None:
+    # A hook cut at a word boundary can still land on a function word.
+    assert subject_is_fragment("a wide selection of") is True
+    assert subject_is_fragment("able company ltd is the") is True
+    assert subject_is_fragment("closing the loop on a great source of") is True
+    assert subject_is_fragment("coastal brand films") is False
+    assert subject_is_fragment("listing reel pacing") is False
+    assert subject_is_fragment("") is False
+
+
+def test_qa_flags_fragment_subject() -> None:
+    """A fragmented subject must fail QA — the bug that shipped 126 July 8 lines."""
+    result = qa(
+        "a wide selection of",
+        "Hi,\n\nMost teams sit on usable footage already.\n\nWorth a short sample cut?",
+    )
+    assert result["pass"] is False
+    assert "subject_fragment" in result["issues"]

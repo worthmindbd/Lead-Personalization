@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import re
 
-from lead_personalization.qa import subject_has_spam
+from lead_personalization.qa import subject_has_spam, subject_is_fragment
 
 # The step whose subject should lead with the lead's own research hook. The
 # first touch is the one that has to earn an open from a cold inbox, so a
@@ -33,6 +33,34 @@ def _clean(text: str, max_len: int = 32) -> str:
     return text
 
 
+def _trim_to_content_word(text: str, max_len: int = 28, min_words: int = 2) -> str:
+    """Trim ``text`` to at most ``max_len`` chars ending on a content word.
+
+    Prospect-supplied hooks are raw site copy; cutting them at a word boundary
+    (``_clean``) can still land mid-phrase on a function word — "a wide
+    selection of". This walks the words, then trims back past any trailing
+    closed-class words. Returns "" when fewer than ``min_words`` content words
+    remain, so the caller falls back to a literal template rather than ship a
+    fragment.
+    """
+    from lead_personalization.qa import FUNCTION_WORDS
+
+    words = (text or "").strip().split()
+    out: list[str] = []
+    length = 0
+    for w in words:
+        add = (length + len(w) + (1 if out else 0))
+        if add > max_len:
+            break
+        out.append(w)
+        length = add
+    while out and out[-1].lower().strip(".,;:") in FUNCTION_WORDS:
+        out.pop()
+    if len(out) < min_words:
+        return ""
+    return _clean(" ".join(out), max_len).lower()
+
+
 def _hook_from_meta(meta: str) -> str:
     if not meta:
         return ""
@@ -41,12 +69,9 @@ def _hook_from_meta(meta: str) -> str:
     for prefix in ("Discover ", "Welcome to ", "We are ", "We offer "):
         if meta.startswith(prefix):
             meta = meta[len(prefix) :]
-    # First clause often best anchor
+    # First clause is often the best anchor; trim it to a coherent phrase.
     clause = re.split(r"[.;]", meta)[0].strip()
-    words = clause.split()
-    if len(words) > 5:
-        clause = " ".join(words[:5])
-    return _clean(clause, 28).lower()
+    return _trim_to_content_word(clause)
 
 
 def _hook_from_signal(signal: str) -> str:
@@ -54,7 +79,7 @@ def _hook_from_signal(signal: str) -> str:
         return ""
     m = re.search(r'site positioning: "(.+?)"', signal, re.I)
     if m:
-        return _clean(m.group(1), 28).lower()
+        return _trim_to_content_word(m.group(1))
     m = re.search(r"leads with (.+?) from ", signal, re.I)
     if m:
         hook = m.group(1).strip()
@@ -63,10 +88,10 @@ def _hook_from_signal(signal: str) -> str:
             hook = parts[-1] if parts else hook
         hook = re.sub(r"^(Home|About|Contact)\s*\|\s*", "", hook, flags=re.I)
         if hook.lower() not in {"home", "about", "contact", "welcome"}:
-            return _clean(hook, 28).lower()
+            return _trim_to_content_word(hook)
     m = re.search(r"lists (.+?) and", signal, re.I)
     if m:
-        return _clean(m.group(1), 28).lower()
+        return _trim_to_content_word(m.group(1))
     return ""
 
 
@@ -137,7 +162,10 @@ def build_subject(
     category = (row.get("First_category") or "").strip()
     meta = (row.get("Meta_Description") or "").strip()
     if hook:
-        hook = _clean(hook, 28).lower()
+        # A caller-supplied hook is the same kind of prospect text the
+        # extractors below pull from meta/signal, so trim it the same coherent
+        # way — to a prefix that ends on a content word, not a blind word slice.
+        hook = _trim_to_content_word(hook)
     hook = hook or _hook_from_signal(signal) or _hook_from_meta(meta)
 
     fallback = subject_templates["low_fit"]
@@ -164,10 +192,17 @@ def build_subject(
         # Word-boundary trim: a hook is prospect-supplied text and can be long,
         # and a subject cut mid-word reads like a broken send.
         subj = _clean(subj, 50)
-        if subj and not subject_has_spam(subj):
+        # Reject fragments: a hook that lands on a function word ("a wide
+        # selection of") is a broken send too. Literal templates never end on a
+        # function word, so a clean fallback candidate always remains.
+        if subj and not subject_has_spam(subj) and not subject_is_fragment(subj):
             used_subjects.add(subj)
             return subj
 
     safe = _clean(hook or category or "your project clips", 40).lower()
+    if subject_is_fragment(safe):
+        # The raw hook landed on a function word; prefer the category or a
+        # generic phrase over a broken send.
+        safe = _clean(category or "your project clips", 40).lower()
     used_subjects.add(safe)
     return safe[:50]

@@ -89,6 +89,20 @@ HARD_CTA_PATTERNS = [
 # Truncation artifacts from snippet clipping must never reach a prospect.
 ELLIPSIS_MARKS = ("...", "\u2026")
 
+# Closed-class words a prospect-supplied subject hook can never end on. When the
+# hook is truncated to the length cap, landing on one of these reads as a
+# broken send ("a wide selection of"). See build_subject / _hook_from_meta.
+FUNCTION_WORDS = {
+    "the", "a", "an", "of", "for", "and", "or", "nor", "but", "to", "in", "on",
+    "at", "by", "with", "from", "into", "onto", "upon", "over", "under", "as",
+    "that", "this", "is", "are", "was", "were", "be", "been", "being", "our",
+    "your", "their", "his", "her", "its", "we", "us", "they", "them", "i", "me",
+    "my", "so", "if", "than", "then",
+    # Hyphenated adjective that reads as an incomplete noun phrase on its own
+    # ("this is your go-to" — go-to what?). Not a state code, so safe to include.
+    "go-to",
+}
+
 
 def word_count(text: str) -> int:
     return len(re.findall(r"\b\w+\b", text))
@@ -120,6 +134,17 @@ def subject_has_spam(subject: str) -> bool:
     return False
 
 
+def subject_is_fragment(subject: str) -> bool:
+    """True when a subject truncates onto a function word.
+
+    A hook cut at a word boundary can still cut mid-phrase, landing on a
+    closed-class word like "of", "the", or "is" — "a wide selection of",
+    "able company ltd is the". Reads as a broken send, so it must never ship.
+    """
+    words = (subject or "").strip().lower().split()
+    return bool(words) and words[-1] in FUNCTION_WORDS
+
+
 def greeting_line(body: str) -> str:
     return (body.split("\n\n")[0] if body else "").strip()
 
@@ -143,6 +168,8 @@ def qa(subject: str, body: str, company: str = "") -> dict:
         issues.append(f"subject len {len(subject)}>60")
     if subject_has_spam(subject):
         issues.append("subject_spam_or_generic")
+    if subject_is_fragment(subject):
+        issues.append("subject_fragment")
     if not greeting_is_valid(body):
         issues.append("bad_greeting")
     for mark in ELLIPSIS_MARKS:
