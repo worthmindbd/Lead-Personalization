@@ -77,6 +77,64 @@ def test_seeding_makes_verified_emails_stop_counting_as_pending(tmp_path, cache_
     assert rp.pending_verification(cleaned) == 6
 
 
+# --- adopt_authoritative_csv: local progress is never clobbered ------------
+
+
+def read_rows(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
+def test_adopt_never_replaces_a_larger_local_file(tmp_path, monkeypatch):
+    """A failed upload leaves the local file ahead of Drive. Reconcile used to
+    overwrite it with the stale Drive copy and strand the difference."""
+    dest = write_csv(tmp_path / "dest.csv", emails(500))
+
+    def fake_download(remote, folder, title, name, target):
+        write_csv(target, emails(200))
+
+    monkeypatch.setattr(rp, "drive_download_file", fake_download)
+
+    rows = rp.adopt_authoritative_csv(
+        "gdrive", rp.DRIVE_VERIFIED, "T", [{"Name": "f.csv"}], dest
+    )
+
+    assert rows == 500
+    assert len(read_rows(dest)) == 500
+
+
+def test_adopt_takes_a_larger_drive_copy(tmp_path, monkeypatch):
+    dest = write_csv(tmp_path / "dest.csv", emails(200))
+
+    def fake_download(remote, folder, title, name, target):
+        write_csv(target, emails(500))
+
+    monkeypatch.setattr(rp, "drive_download_file", fake_download)
+
+    rows = rp.adopt_authoritative_csv(
+        "gdrive", rp.DRIVE_VERIFIED, "T", [{"Name": "f.csv"}], dest
+    )
+
+    assert rows == 500
+    assert len(read_rows(dest)) == 500
+
+
+def test_adopt_downloads_into_an_empty_workdir(tmp_path, monkeypatch):
+    dest = tmp_path / "dest.csv"
+
+    def fake_download(remote, folder, title, name, target):
+        write_csv(target, emails(7))
+
+    monkeypatch.setattr(rp, "drive_download_file", fake_download)
+
+    rows = rp.adopt_authoritative_csv(
+        "gdrive", rp.DRIVE_VERIFIED, "T", [{"Name": "f.csv"}], dest
+    )
+
+    assert rows == 7
+    assert len(read_rows(dest)) == 7
+
+
 # --- reconcile stage decisions --------------------------------------------
 
 

@@ -17,8 +17,10 @@ import re
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
+
+from typing import Sequence
 
 ACTOR = "harvestapi~linkedin-profile-posts"
 ENDPOINT = f"https://api.apify.com/v2/acts/{ACTOR}/run-sync-get-dataset-items"
@@ -32,6 +34,32 @@ _EMOJI_RE = re.compile(
     "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\u2190-\u21FF\u2300-\u23FF]",
     re.UNICODE,
 )
+
+
+def parse_tokens(token_input: str | Sequence[str] | None) -> list[str]:
+    """Parse one or more Apify API tokens from a string, list, or sequence.
+
+    Supports comma-separated, semicolon-separated, or whitespace/newline-separated
+    tokens, removing surrounding whitespace, quotes, and duplicates while
+    preserving order.
+    """
+    if not token_input:
+        return []
+    if isinstance(token_input, str):
+        parts = re.split(r"[\s,;\n\r]+", token_input)
+    else:
+        parts = []
+        for item in token_input:
+            if isinstance(item, str):
+                parts.extend(re.split(r"[\s,;\n\r]+", item))
+    seen: set[str] = set()
+    tokens: list[str] = []
+    for p in parts:
+        cleaned = p.strip().strip('"').strip("'")
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            tokens.append(cleaned)
+    return tokens
 
 
 def li_handle(url: str) -> str:
@@ -140,13 +168,19 @@ def _call_actor(urls: list[str], token: str, max_posts: int) -> list[dict]:
     )
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
         body = resp.read().decode()
-    return json.loads(body) if body.strip() else []
+    parsed = json.loads(body) if body.strip() else []
+    if isinstance(parsed, dict) and "error" in parsed:
+        error_msg = parsed.get("error")
+        if isinstance(error_msg, dict):
+            error_msg = error_msg.get("message") or str(error_msg)
+        raise RuntimeError(f"Apify actor error: {error_msg}")
+    return parsed if isinstance(parsed, list) else []
 
 
 def scrape_profiles(
     urls: list[str],
     cache_file: Path,
-    token: str,
+    token: str | Sequence[str],
     max_posts: int = DEFAULT_MAX_POSTS,
     *,
     force: bool = False,
@@ -154,9 +188,13 @@ def scrape_profiles(
     """Return {handle: [post_summary, ...]} for the given LinkedIn URLs.
 
     Uses the on-disk cache to skip already-scraped handles. One batched actor
-    call covers all uncached URLs. Handles returning no posts are cached as
-    empty lists so silent profiles are not re-paid for.
+    call covers all uncached URLs. When multiple tokens are provided (list or
+    comma-separated string), if an API call fails with one token, it
+    automatically falls back to the next token in the list. Handles returning
+    no posts are cached as empty lists so silent profiles are not re-paid for.
     """
+    tokens = parse_tokens(token)
+
     with _cache_lock(cache_file):
         cache = _load_cache(cache_file)
         result: dict[str, list[dict]] = {}
@@ -176,24 +214,60 @@ def scrape_profiles(
         if not pending:
             return result
 
-        if not token:
+        if not tokens:
             raise RuntimeError("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")
 
         CHUNK = 40
-        stamp = date.today().isoformat()
+        # UTC, matching the Reoon daily-usage tracker: cache stamps feed
+        # freshness decisions that must not depend on the machine's timezone.
+        stamp = datetime.now(timezone.utc).date().isoformat()
+        active_token_idx = 0
+        num_tokens = len(tokens)
+
         for offset in range(0, len(pending), CHUNK):
             chunk_urls = pending[offset : offset + CHUNK]
             chunk_handles = pending_handles[offset : offset + CHUNK]
-            try:
-                items = _call_actor(chunk_urls, token, max_posts)
-            except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as exc:
-                detail = ""
-                if isinstance(exc, urllib.error.HTTPError):
-                    try:
-                        detail = exc.read().decode()[:200]
-                    except Exception:
-                        detail = ""
-                print(f"Apify LinkedIn scrape failed (chunk {offset // CHUNK + 1}): {exc} {detail}")
+            chunk_num = offset // CHUNK + 1
+
+            items = None
+            attempts = 0
+            while attempts < num_tokens:
+                curr_token = tokens[active_token_idx]
+                token_display = (
+                    f"{curr_token[:4]}...{curr_token[-4:]}" if len(curr_token) > 8 else "***"
+                )
+                try:
+                    items = _call_actor(chunk_urls, curr_token, max_posts)
+                    break
+                except (
+                    urllib.error.URLError,
+                    urllib.error.HTTPError,
+                    TimeoutError,
+                    OSError,
+                    Exception,
+                ) as exc:
+                    detail = ""
+                    if isinstance(exc, urllib.error.HTTPError):
+                        try:
+                            detail = exc.read().decode()[:200]
+                        except Exception:
+                            detail = ""
+                    err_msg = f"{exc} {detail}".strip()
+                    attempts += 1
+                    if attempts < num_tokens:
+                        print(
+                            f"Apify LinkedIn scrape failed with token {token_display} "
+                            f"(chunk {chunk_num}): {err_msg}. Falling back to next token..."
+                        )
+                        active_token_idx = (active_token_idx + 1) % num_tokens
+                    else:
+                        print(
+                            f"Apify LinkedIn scrape failed (chunk {chunk_num}): {err_msg} "
+                            f"(exhausted all {num_tokens} token(s))"
+                        )
+                        active_token_idx = (active_token_idx + 1) % num_tokens
+
+            if items is None:
                 continue
 
             grouped: dict[str, list[dict]] = {}

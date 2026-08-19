@@ -19,9 +19,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.naming import campaign_stem  # noqa: E402
 from lead_personalization.pipeline import (  # noqa: E402,F401
     DERIVED_FIELDS,
     domain_company,
+    normalized_fieldnames,
     normalize_row,
     parse_name_field,
     pick_primary_email,
@@ -45,23 +47,6 @@ def count_named_path(stem: str, count: int, label: str, directory: Path) -> Path
     return directory / f"{stem}-{count}-{label}.csv"
 
 
-def campaign_stem(stem: str) -> str:
-    s = stem.lower().replace("-38k", "")
-    parts = s.split("-")
-    alpha: list[str] = []
-    for part in parts:
-        if part.isdigit():
-            break
-        if part in {"cleaned", "verified", "valid", "normalized"}:
-            break
-        alpha.append(part)
-    return "-".join(alpha) or "mixed"
-
-
-def strip_count_suffix(stem: str) -> str:
-    return campaign_stem(stem)
-
-
 def normalized_output_path(source: Path, row_count: int) -> Path:
     base = campaign_stem(source.stem)
     return count_named_path(base, row_count, "normalized", source.parent)
@@ -69,10 +54,10 @@ def normalized_output_path(source: Path, row_count: int) -> Path:
 
 def normalize_leads(
     source: Path = DEFAULT_SOURCE,
-    csv_out: Path = DEFAULT_CSV_OUT,
-    json_out: Path = DEFAULT_JSON_OUT,
+    csv_out: Path | None = None,
+    json_out: Path | None = None,
 ) -> list[dict]:
-    with source.open(newline="", encoding="utf-8") as handle:
+    with source.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         fieldnames = list(reader.fieldnames or [])
         rows = list(reader)
@@ -80,11 +65,18 @@ def normalize_leads(
     # Spelled once, in the module that derives them — a column added there but
     # missing here would be computed and then silently dropped by the writer's
     # extrasaction="ignore".
-    out_fieldnames = fieldnames + [f for f in DERIVED_FIELDS if f not in fieldnames]
+    out_fieldnames = normalized_fieldnames(fieldnames)
     normalized = [normalize_row(i, row) for i, row in enumerate(rows)]
 
-    if source != DEFAULT_SOURCE:
-        csv_out = normalized_output_path(source, len(normalized))
+    # An explicitly-passed csv_out is honored. When the caller left it to us:
+    # the default source keeps its stable default output; any other source gets
+    # the count-named path next to itself.
+    if csv_out is None:
+        csv_out = (
+            DEFAULT_CSV_OUT if source == DEFAULT_SOURCE
+            else normalized_output_path(source, len(normalized))
+        )
+    json_out = json_out or DEFAULT_JSON_OUT
 
     csv_out.parent.mkdir(parents=True, exist_ok=True)
     with csv_out.open("w", newline="", encoding="utf-8") as handle:

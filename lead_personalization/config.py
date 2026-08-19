@@ -1,9 +1,9 @@
 """Runtime configuration: paths, feature flags, and API keys.
 
-Replaces the module-level ``ROOT = Path(__file__).parents[2]`` constants that
-used to be scattered across the pipeline scripts. A ``Config`` is passed into
-library functions so the same code runs from the CLI, the web app, or tests
-without assuming a fixed repo layout.
+One definition of the repo's paths, feature flags, and limits (``.env``
+aware) instead of a copy per script. Scripts build a ``Config`` at startup and
+derive their module-level knobs from it, so tests can still flip a flag by
+patching the module.
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ class Config:
 
     # Secrets / limits.
     apify_token: str = ""
+    apify_tokens: list[str] = field(default_factory=list)
     reoon_api_key: str = ""
     reoon_daily_limit: int = 500
     firecrawl_api_key: str = ""  # reserved for a future tier-3 renderer
@@ -65,6 +66,11 @@ class Config:
             self.enriched_dir = self.leads_dir / "enriched"
         if self.state_dir is None:
             self.state_dir = self.root
+        if not self.apify_tokens and self.apify_token:
+            from lead_personalization.linkedin import parse_tokens
+            self.apify_tokens = parse_tokens(self.apify_token)
+        elif self.apify_tokens and not self.apify_token:
+            self.apify_token = ",".join(self.apify_tokens)
 
     @classmethod
     def from_env(cls, root: Path | None = None, **overrides) -> "Config":
@@ -72,11 +78,29 @@ class Config:
         base = Path(root) if root else REPO_ROOT
         load_dotenv(base / ".env")
         env = os.environ
+        try:
+            reoon_daily_limit = int(env.get("REOON_DAILY_LIMIT", "500") or "500")
+        except ValueError:
+            reoon_daily_limit = 500
+
+        raw_primary = env.get("APIFY_API_TOKEN", "").strip()
+        raw_fallbacks = (
+            env.get("APIFY_API_TOKENS", "").strip()
+            or env.get("APIFY_FALLBACK_TOKENS", "").strip()
+            or env.get("APIFY_API_FALLBACK_TOKENS", "").strip()
+        )
+        combined = []
+        if raw_primary:
+            combined.append(raw_primary)
+        if raw_fallbacks:
+            combined.append(raw_fallbacks)
+        apify_token_val = ",".join(combined)
+
         kwargs = dict(
             root=base,
-            apify_token=env.get("APIFY_API_TOKEN", "").strip(),
+            apify_token=apify_token_val,
             reoon_api_key=env.get("REOON_API_KEY", "").strip(),
-            reoon_daily_limit=int(env.get("REOON_DAILY_LIMIT", "500") or "500"),
+            reoon_daily_limit=reoon_daily_limit,
             firecrawl_api_key=env.get("FIRECRAWL_API_KEY", "").strip(),
         )
         kwargs.update(overrides)

@@ -121,7 +121,7 @@ Default **50 leads** unless the user requests full scale. Stratify across `aevor
 ### Research
 
 Per lead the research step gathers, in priority order:
-1. **LinkedIn recent posts** (if `Linkedin_URL` present) via Apify `harvestapi/linkedin-profile-posts` — latest 3 posts, cached per handle in `.apify/` so re-runs never re-pay. Needs `APIFY_API_TOKEN` in `.env`. Disable with `--no-linkedin`.
+1. **LinkedIn recent posts** (if `Linkedin_URL` present) via Apify `harvestapi/linkedin-profile-posts` — latest 3 posts, cached per handle in `.apify/` so re-runs never re-pay. Needs `APIFY_API_TOKEN` (supports multiple fallback tokens via comma-separated list or `APIFY_FALLBACK_TOKENS`) in `.env`. Disable with `--no-linkedin`.
 2. **Website** title/meta/H1 + **video evidence** (embedded video, YouTube/Instagram links). When the plain fetch fails or returns nothing usable (JS-built sites: Wix, Squarespace), `process_batch.py` retries with headless Chromium (`render_page.js`; disable with `--no-render`).
 
 Evidence priority for the opener: `linkedin_posts` → `site_video` → `social_video` → `positioning` → `weak`. `signal_strength` (strong/weak) is recorded per lead; weak-signal leads get the honest generic variant, never a fabricated observation. Signal must be verifiable. No lead is excluded from copy — a weak signal changes which variant it gets, never whether it gets one. Note thin research in `research_notes`.

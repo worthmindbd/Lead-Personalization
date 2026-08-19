@@ -12,14 +12,19 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import date
+from datetime import datetime, timezone
 from pathlib import Path
+
+from lead_personalization import fsutil
+from lead_personalization.config import load_dotenv
+from lead_personalization.naming import campaign_stem  # noqa: F401 — re-exported for callers
 
 ROOT = Path(__file__).resolve().parents[1]
 STATE_DIR = ROOT / ".reoon"
 STATE_FILE = STATE_DIR / "daily_usage.json"
 CACHE_FILE = STATE_DIR / "verified_cache.json"
 REJECTED_FILE = STATE_DIR / "rejected.json"
+TASK_FILE = STATE_DIR / "bulk_task.json"
 API_BASE = "https://emailverifier.reoon.com/api/v1"
 
 EMAIL_COLUMNS = ("primary_email", "Email", "email", "Email Address")
@@ -27,22 +32,8 @@ EMAIL_COLUMNS = ("primary_email", "Email", "email", "Email Address")
 # Keep these Reoon statuses in the single verified list; drop everything else.
 KEEP_STATUSES = frozenset({"safe", "role_account"})
 
-
-def campaign_stem(stem: str) -> str:
-    """Return campaign prefix without row-count or stage suffixes."""
-    s = stem.lower().replace("-38k", "")
-    for suffix in ("-with-email", "-cleaned", "-verified", "-valid", "-normalized"):
-        if s.endswith(suffix):
-            s = s[: -len(suffix)]
-    parts = s.split("-")
-    alpha: list[str] = []
-    for part in parts:
-        if part.isdigit():
-            break
-        if part in {"cleaned", "verified", "valid", "normalized"}:
-            break
-        alpha.append(part)
-    return "-".join(alpha) or "mixed"
+# Transient HTTP conditions worth retrying before giving up.
+RETRYABLE_HTTP = frozenset({429, 500, 502, 503, 504})
 
 
 def verified_output_path(source: Path, override: Path | None = None) -> Path:
@@ -52,23 +43,25 @@ def verified_output_path(source: Path, override: Path | None = None) -> Path:
     return source.parent / f"{campaign_stem(source.stem)}-verified.csv"
 
 
-def load_dotenv(path: Path) -> None:
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
-def api_get(path: str, params: dict, api_key: str) -> dict:
+def api_get(path: str, params: dict, api_key: str, *, retries: int = 3) -> dict:
     params = {**params, "key": api_key}
     url = f"{API_BASE}/{path}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read().decode())
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(url, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return json.loads(resp.read().decode())
+        except urllib.error.HTTPError as exc:
+            if exc.code not in RETRYABLE_HTTP or attempt == retries:
+                raise
+            last_exc = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if attempt == retries:
+                raise
+            last_exc = exc
+        time.sleep(2 * attempt)
+    raise last_exc  # pragma: no cover — loop always returns or raises
 
 
 def api_post(path: str, body: dict) -> tuple[int, dict]:
@@ -89,18 +82,17 @@ def api_post(path: str, body: dict) -> tuple[int, dict]:
 
 
 def today_str() -> str:
-    return date.today().isoformat()
+    # Reoon's daily free credits reset at midnight UTC; the local tracker must
+    # key on the UTC date or a UTC+6 machine locks itself out of a fresh day.
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def load_json(path: Path, default: dict) -> dict:
-    if not path.is_file():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    return fsutil.load_json(path, default)
 
 
 def save_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    fsutil.atomic_write_json(path, data)
 
 
 def daily_usage() -> dict:
@@ -111,16 +103,30 @@ def daily_usage() -> dict:
 
 
 def record_usage(count: int) -> None:
-    usage = daily_usage()
-    usage["verified_count"] = int(usage.get("verified_count", 0)) + count
-    save_json(STATE_FILE, usage)
+    with fsutil.file_lock(STATE_FILE):
+        usage = daily_usage()
+        usage["verified_count"] = int(usage.get("verified_count", 0)) + count
+        save_json(STATE_FILE, usage)
 
 
 def account_balance(api_key: str) -> dict:
     balance = api_get("check-account-balance/", {}, api_key)
     if balance.get("status") != "success":
-        raise SystemExit(f"Balance check failed: {balance}")
+        raise RuntimeError(f"Balance check failed: {balance}")
     return balance
+
+
+def print_balance(api_key: str) -> None:
+    """Informational balance line; never fatal (instant/full-list modes go on)."""
+    try:
+        balance = account_balance(api_key)
+    except Exception as exc:
+        print(f"Warning: could not check balance ({exc}).", file=sys.stderr)
+        return
+    print(
+        f"Reoon credits — daily remaining: {balance.get('remaining_daily_credits')}, "
+        f"instant remaining: {balance.get('remaining_instant_credits')}"
+    )
 
 
 def remaining_today(daily_limit: int, api_key: str) -> int:
@@ -145,18 +151,30 @@ def verify_batch(
     api_key: str,
     task_name: str,
     stamp: str,
+    on_result=None,
 ) -> dict[str, dict]:
+    """Verify one batch; calls ``on_result(part)`` as results become durable.
+
+    ``on_result`` is invoked per address on the single-verify path (so a crash
+    mid-loop keeps everything already paid for) and once per task on the bulk
+    path.
+    """
     verified: dict[str, dict] = {}
     if len(batch) < 10:
         for email in batch:
-            verified[email] = verify_single(email, api_key)
-            verified[email]["verified_at"] = stamp
+            single = verify_single(email, api_key)
+            single["verified_at"] = stamp
+            verified[email] = single
+            if on_result:
+                on_result({email: single})
             time.sleep(0.2)
     else:
         results = verify_bulk(batch, api_key, task_name)
         for email, data in results.items():
             data["verified_at"] = stamp
             verified[email.lower()] = data
+        if on_result and verified:
+            on_result(verified)
     return verified
 
 
@@ -166,6 +184,18 @@ def load_cache() -> dict:
 
 def save_cache(cache: dict) -> None:
     save_json(CACHE_FILE, cache)
+
+
+def merge_into_cache(part: dict[str, dict]) -> None:
+    """Merge results into the shared cache file under a lock.
+
+    Reload-merge-save (not overwrite) so a concurrent verifier run on another
+    list is never erased.
+    """
+    with fsutil.file_lock(CACHE_FILE):
+        cache = load_cache()
+        cache.update(part)
+        save_cache(cache)
 
 
 def load_rejected() -> dict[str, dict]:
@@ -214,17 +244,71 @@ def verify_single(email: str, api_key: str) -> dict:
     return data
 
 
-def verify_bulk(emails: list[str], api_key: str, task_name: str) -> dict[str, dict]:
-    status, created = api_post(
-        "create-bulk-verification-task/",
-        {"name": task_name[:25], "emails": emails, "key": api_key},
+def _poll_deadline_s() -> int:
+    try:
+        return max(60, int(os.environ.get("REOON_POLL_DEADLINE_S", "1800")))
+    except ValueError:
+        return 1800
+
+
+def _resumable_task_id(emails: list[str], task_name: str) -> str | None:
+    """A task from an interrupted run that covers exactly these emails.
+
+    Reoon charges on task creation, so an interrupted poll must not lead the
+    next run into creating a duplicate task for the same addresses.
+    """
+    task = load_json(TASK_FILE, {})
+    if not isinstance(task, dict) or not task.get("task_id"):
+        return None
+    if task.get("task_name") != task_name:
+        return None
+    if set(task.get("emails") or []) != set(emails):
+        return None
+    try:
+        created = datetime.fromisoformat(str(task.get("created_at", "")))
+        age = datetime.now(timezone.utc) - created
+    except ValueError:
+        return None
+    if age.total_seconds() > 24 * 3600:
+        return None  # results may have expired server-side; not worth resuming
+    return str(task["task_id"])
+
+
+def _remember_task(task_id: str, task_name: str, emails: list[str]) -> None:
+    save_json(
+        TASK_FILE,
+        {
+            "task_id": task_id,
+            "task_name": task_name,
+            "emails": list(emails),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
     )
-    if status != 201 or created.get("status") != "success":
-        raise SystemExit(f"Bulk task creation failed ({status}): {created}")
 
-    task_id = created["task_id"]
-    print(f"Bulk task {task_id} created — verifying {created.get('count_processing', len(emails))} emails…")
 
+def _forget_task() -> None:
+    TASK_FILE.unlink(missing_ok=True)
+
+
+def verify_bulk(emails: list[str], api_key: str, task_name: str) -> dict[str, dict]:
+    task_id = _resumable_task_id(emails, task_name)
+    if task_id:
+        print(f"Resuming bulk task {task_id} from an interrupted run (no re-spend)…")
+    else:
+        status, created = api_post(
+            "create-bulk-verification-task/",
+            {"name": task_name[:25], "emails": emails, "key": api_key},
+        )
+        if status != 201 or created.get("status") != "success":
+            raise SystemExit(f"Bulk task creation failed ({status}): {created}")
+        task_id = created["task_id"]
+        _remember_task(task_id, task_name, emails)
+        print(
+            f"Bulk task {task_id} created — "
+            f"verifying {created.get('count_processing', len(emails))} emails…"
+        )
+
+    deadline = time.monotonic() + _poll_deadline_s()
     while True:
         result = api_get(
             "get-result-bulk-verification-task/",
@@ -238,9 +322,19 @@ def verify_bulk(emails: list[str], api_key: str, task_name: str) -> dict[str, di
         print(f"  status={task_status} progress={pct}% ({checked}/{total})")
 
         if task_status == "completed":
+            _forget_task()
             return result.get("results") or {}
-        if task_status in {"file_not_found", "file_loading_error"} or result.get("status") == "error":
+        if task_status in {"file_not_found", "file_loading_error", "error"}:
+            _forget_task()
             raise SystemExit(f"Bulk verification failed: {result}")
+        if time.monotonic() > deadline:
+            # Keep the task file: the task may still finish server-side, and a
+            # later run resumes polling it instead of paying for a duplicate.
+            raise SystemExit(
+                f"Bulk task {task_id} still '{task_status}' after "
+                f"{_poll_deadline_s()}s — giving up this run. The task record "
+                f"({TASK_FILE.name}) was kept so the next run resumes it."
+            )
 
         time.sleep(5)
 
@@ -364,9 +458,15 @@ def main() -> None:
     output = verified_output_path(source, args.output)
 
     all_emails = extract_emails_from_csv(source)
-    cache = load_cache() if not args.force else {}
+    # --force re-spends on cached addresses but NEVER discards the cache: other
+    # lists' results live in the same file, and overwriting it would re-pay for
+    # every one of them. Re-verified results simply overwrite in place.
+    cache = load_cache()
     rejected = {} if (args.force or args.recheck_rejected) else load_rejected()
-    pending = [e for e in all_emails if e not in cache and e not in rejected]
+    if args.force:
+        pending = list(all_emails)
+    else:
+        pending = [e for e in all_emails if e not in cache and e not in rejected]
     skipped_cached = sum(1 for e in all_emails if e in cache)
     skipped_rejected = sum(1 for e in all_emails if e not in cache and e in rejected)
 
@@ -401,10 +501,7 @@ def main() -> None:
         if not pending:
             print("Nothing new to verify.")
         else:
-            balance = account_balance(api_key)
-            instant = int(balance.get("remaining_instant_credits", 0))
-            daily = int(balance.get("remaining_daily_credits", 0))
-            print(f"Reoon credits — daily remaining: {daily}, instant remaining: {instant}")
+            print_balance(api_key)
             chunk = max(1, min(args.chunk_size, 50000))
             remaining = list(pending)
             batch_num = 0
@@ -412,9 +509,11 @@ def main() -> None:
                 batch_num += 1
                 batch = remaining[:chunk]
                 print(f"\nBulk batch {batch_num}: verifying {len(batch)} emails…")
-                verified = verify_batch(batch, api_key, f"{source.stem[:20]}-{batch_num}", stamp)
+                verified = verify_batch(
+                    batch, api_key, f"{source.stem[:20]}-{batch_num}", stamp,
+                    on_result=merge_into_cache,
+                )
                 cache.update(verified)
-                save_cache(cache)
                 record_usage(len(batch))
                 total_verified_run += len(batch)
                 remaining = remaining[len(batch):]
@@ -432,14 +531,11 @@ def main() -> None:
         if not batch:
             print("Nothing new to verify. Refreshing verified list from cache.")
         else:
-            balance = account_balance(api_key)
-            print(
-                f"Reoon credits — daily remaining: {balance.get('remaining_daily_credits')}, "
-                f"instant remaining: {balance.get('remaining_instant_credits')}"
+            print_balance(api_key)
+            verified = verify_batch(
+                batch, api_key, source.stem[:25], stamp, on_result=merge_into_cache
             )
-            verified = verify_batch(batch, api_key, source.stem[:25], stamp)
             cache.update(verified)
-            save_cache(cache)
             total_verified_run = len(batch)
             kept = sum(
                 1
@@ -459,9 +555,10 @@ def main() -> None:
         if not batch:
             print("Nothing new to verify. Refreshing verified list from cache.")
         else:
-            verified = verify_batch(batch, api_key, source.stem[:25], stamp)
+            verified = verify_batch(
+                batch, api_key, source.stem[:25], stamp, on_result=merge_into_cache
+            )
             cache.update(verified)
-            save_cache(cache)
             record_usage(len(batch))
             total_verified_run = len(batch)
             kept = sum(
@@ -472,6 +569,8 @@ def main() -> None:
             )
             print(f"\nDone. Verified {len(batch)} emails this run ({kept} kept: safe/role_account).")
 
+    # Reload: a concurrent verifier run may have added results since we loaded.
+    cache = load_cache()
     kept_count, checked, status_counts, output = write_verified_list(source, output, cache)
     print(f"API-checked in source: {checked} / {len(all_emails)}")
     if status_counts:

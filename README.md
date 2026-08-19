@@ -231,12 +231,18 @@ lead has no LinkedIn, it falls back to website + video-presence signals.
 ```bash
 # Add your token to .env (see .env.example)
 APIFY_API_TOKEN=...
+
+# Optional: Multiple tokens with automatic fallback (comma-separated or via APIFY_FALLBACK_TOKENS)
+# APIFY_API_TOKEN=token1,token2
+# or
+# APIFY_FALLBACK_TOKENS=fallback_token_1,fallback_token_2
 ```
 
 | Behavior | Detail |
 |----------|--------|
 | Posts per lead | 3 latest (`LINKEDIN_MAX_POSTS`) |
 | Cost | ~$2 / 1,000 posts (billed by Apify) |
+| Fallback APIs | Automatic failover to next token on rate limits, quota exhaustion, or API errors |
 | Cache | `.apify/linkedin_cache.json` — per-handle, never re-pays |
 | Batched | One actor call per run warms all LinkedIn URLs before workers start |
 | Disable | `--no-linkedin` on `process_batch.py` / `run_batches.py` |

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lead_personalization.qa import qa  # noqa: E402
-from lead_personalization.sanitize import sanitize_email, sanitize_signal  # noqa: E402
+from lead_personalization.sanitize import sanitize_email  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
 
@@ -31,21 +31,14 @@ def fix_batch(
     if not research_path.exists() or not copy_path.exists():
         raise FileNotFoundError(f"Missing research/copy for batch {batch_id}")
 
-    research = json.loads(research_path.read_text(encoding="utf-8"))
     copy_data = json.loads(copy_path.read_text(encoding="utf-8"))
 
-    signals_fixed = 0
     emails_fixed = 0
     before_fail = 0
     after_fail = 0
 
-    for item in research:
-        old_signal = item.get("research_signal", "")
-        new_signal = sanitize_signal(old_signal)
-        if new_signal != old_signal:
-            item["research_signal"] = new_signal
-            signals_fixed += 1
-
+    # research_signal is internal bookkeeping (never pasted into copy); the
+    # copy paragraphs are the only text that can leak, so only they are scanned.
     for email, seq in copy_data.items():
         new_seq = []
         for step in seq:
@@ -61,7 +54,6 @@ def fix_batch(
             new_seq.append([new_subj, new_body])
         copy_data[email] = new_seq
 
-    research_path.write_text(json.dumps(research, indent=2), encoding="utf-8")
     copy_path.write_text(json.dumps(copy_data, indent=2), encoding="utf-8")
 
     build_result = build_batch(
@@ -69,7 +61,6 @@ def fix_batch(
     )
     return {
         "batch_id": batch_id,
-        "signals_fixed": signals_fixed,
         "emails_touched": emails_fixed,
         "qa_before_fail": before_fail,
         "qa_after_fail": after_fail,

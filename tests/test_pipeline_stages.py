@@ -41,6 +41,11 @@ def emails_csv(path: Path, emails: list[str]) -> Path:
     )
 
 
+def read_csv(path: Path) -> list[dict]:
+    with path.open(newline="", encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
 # ---------------------------------------------------------------------------
 # merge_into_cumulative
 # ---------------------------------------------------------------------------
@@ -293,7 +298,7 @@ def test_a_tombstoned_address_is_not_pending(verify_env, monkeypatch):
     assert entry["verify_complete"] is True
 
 
-def test_a_cached_list_with_no_verified_file_is_rebuilt(verify_env, monkeypatch):
+def test_a_cached_list_with_no_verified_file_is_rebuilt(verify_env, monkeypatch, capsys):
     """Zero pending but the verified CSV is gone — regenerate it from the cache
     rather than leaving the list with no output to upload."""
     entry, workdir = verify_env
@@ -302,13 +307,33 @@ def test_a_cached_list_with_no_verified_file_is_rebuilt(verify_env, monkeypatch)
         {"a@x.com": {"status": "safe"}, "b@x.com": {"status": "safe"},
          "c@x.com": {"status": "safe"}},
     )
-    calls = fake_verifier(monkeypatch, workdir,
-                          {"a@x.com": "safe", "b@x.com": "safe", "c@x.com": "safe"})
+    no_subprocess(monkeypatch)
 
     rp.stage_verify("July 1", entry, args_for())
 
-    assert len(calls) == 1
-    assert (workdir / "july-1-verified.csv").is_file()
+    assert "rebuilt verified list from cache" in capsys.readouterr().out
+    assert sorted(e["primary_email"] for e in read_csv(workdir / "july-1-verified.csv")) == [
+        "a@x.com", "b@x.com", "c@x.com",
+    ]
+
+
+def test_a_stale_smaller_verified_list_is_rebuilt_from_cache(verify_env, monkeypatch, capsys):
+    """The stranding regression: a Drive copy overwrote a larger local verified
+    list. Every dropped address is still cached (pending == 0), so the skip
+    path would strand them forever — instead the list is rebuilt from cache."""
+    entry, workdir = verify_env
+    rp.save_json_atomic(
+        rp.REOON_CACHE_FILE,
+        {"a@x.com": {"status": "safe"}, "b@x.com": {"status": "safe"},
+         "c@x.com": {"status": "safe"}},
+    )
+    emails_csv(workdir / "july-1-verified.csv", ["a@x.com"])  # stale 1-row copy
+    no_subprocess(monkeypatch)
+
+    rp.stage_verify("July 1", entry, args_for())
+
+    assert "rebuilt verified list from cache" in capsys.readouterr().out
+    assert len(read_csv(workdir / "july-1-verified.csv")) == 3
 
 
 def test_a_completed_run_marks_the_list_complete(verify_env, monkeypatch):
@@ -387,3 +412,29 @@ def test_state_json_survives_the_stage(verify_env, monkeypatch):
     rp.stage_verify("July 1", entry, args_for())
 
     assert json.loads(json.dumps(entry))["verify_complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# Run-level lock
+# ---------------------------------------------------------------------------
+
+
+def test_a_second_concurrent_run_exits_instead_of_racing(tmp_path, monkeypatch):
+    """state/contacted/rejected are whole-file read-modify-write; two live runs
+    would erase each other's stage transitions and contacted claims."""
+    import fcntl
+
+    monkeypatch.setattr(rp, "PIPELINE_LOCK_FILE", tmp_path / "run.lock")
+    with rp.pipeline_run_lock():
+        # A second lock attempt on a fresh fd must fail loudly (LOCK_NB).
+        with pytest.raises(SystemExit):
+            with rp.pipeline_run_lock():
+                pytest.fail("lock was handed out twice")
+
+
+def test_the_lock_is_released_after_a_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(rp, "PIPELINE_LOCK_FILE", tmp_path / "run.lock")
+    with rp.pipeline_run_lock():
+        pass
+    with rp.pipeline_run_lock():
+        pass

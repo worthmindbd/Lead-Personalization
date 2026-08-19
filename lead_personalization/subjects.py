@@ -10,7 +10,11 @@ from __future__ import annotations
 import hashlib
 import re
 
-from lead_personalization.qa import subject_has_spam, subject_is_fragment
+from lead_personalization.qa import (  # noqa: F401 — FUNCTION_WORDS re-exported below
+    FUNCTION_WORDS,
+    subject_has_spam,
+    subject_is_fragment,
+)
 
 # The step whose subject should lead with the lead's own research hook. The
 # first touch is the one that has to earn an open from a cold inbox, so a
@@ -43,8 +47,6 @@ def _trim_to_content_word(text: str, max_len: int = 28, min_words: int = 2) -> s
     remain, so the caller falls back to a literal template rather than ship a
     fragment.
     """
-    from lead_personalization.qa import FUNCTION_WORDS
-
     words = (text or "").strip().split()
     out: list[str] = []
     length = 0
@@ -77,6 +79,11 @@ def _hook_from_meta(meta: str) -> str:
 def _hook_from_signal(signal: str) -> str:
     if not signal:
         return ""
+    # The exact phrasings build_signal emits; research.py owns the other half
+    # of this contract (tests pin the round trip).
+    m = re.search(r'recent LinkedIn post: "(.+?)"', signal, re.I)
+    if m:
+        return _trim_to_content_word(m.group(1))
     m = re.search(r'site positioning: "(.+?)"', signal, re.I)
     if m:
         return _trim_to_content_word(m.group(1))
@@ -169,7 +176,9 @@ def build_subject(
     hook = hook or _hook_from_signal(signal) or _hook_from_meta(meta)
 
     fallback = subject_templates["low_fit"]
-    templates = subject_templates.get(segment, fallback).get(step, fallback[step])
+    templates = subject_templates.get(segment, fallback).get(step) or fallback.get(step)
+    if not templates:
+        raise ValueError(f"no subject templates for segment={segment!r} step={step}")
     templates = _order_templates(list(templates), has_hook=bool(hook), key=key, step=step)
 
     candidates: list[str] = []

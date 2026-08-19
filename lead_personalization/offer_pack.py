@@ -42,15 +42,26 @@ class OfferPack:
     def segment_solutions(self, segment: str) -> dict[str, list[str]]:
         return self.segment_copy.get(segment, self.segment_copy[FALLBACK_SEGMENT])
 
-    def subjects_for(self, segment: str, step: int) -> list[str]:
-        seg = self.subject_templates.get(segment, self.subject_templates[FALLBACK_SEGMENT])
-        return seg.get(step, self.subject_templates[FALLBACK_SEGMENT][step])
-
 
 def _validate(pack: OfferPack) -> None:
+    if pack.version != 1:
+        # The loader understands exactly one pack schema; accepting an unknown
+        # version would mis-parse it into silently wrong copy.
+        raise OfferPackError(
+            f"offer pack '{pack.name}': unsupported version {pack.version} "
+            f"(this loader understands version 1)"
+        )
     missing = [e for e in REQUIRED_EVIDENCE if e not in pack.openers]
     if missing:
         raise OfferPackError(f"offer pack '{pack.name}' openers missing: {missing}")
+    # An empty pool would pass a key-presence check and then crash with
+    # ZeroDivisionError in the copywriter's _pick — mid-batch, after research
+    # credits were spent.
+    for evidence in REQUIRED_EVIDENCE:
+        if not pack.openers[evidence]:
+            raise OfferPackError(
+                f"offer pack '{pack.name}' openers['{evidence}'] is empty"
+            )
     if FALLBACK_SEGMENT not in pack.segment_copy:
         raise OfferPackError(f"offer pack '{pack.name}' segment_copy missing '{FALLBACK_SEGMENT}'")
     for seg, blocks in pack.segment_copy.items():
@@ -67,6 +78,18 @@ def _validate(pack: OfferPack) -> None:
     for step in REQUIRED_STEPS:
         if not pack.subject_templates[FALLBACK_SEGMENT].get(step):
             raise OfferPackError(f"subject_templates['{FALLBACK_SEGMENT}'] missing step {step}")
+    # A segment defined in one map but not the other silently degrades that
+    # whole segment to low_fit copy or low_fit subjects — no error anywhere.
+    seg_copy_segs = set(pack.segment_copy)
+    subject_segs = set(pack.subject_templates)
+    if seg_copy_segs != subject_segs:
+        only_copy = sorted(seg_copy_segs - subject_segs)
+        only_subjects = sorted(subject_segs - seg_copy_segs)
+        raise OfferPackError(
+            f"offer pack '{pack.name}': segment_copy and subject_templates "
+            f"disagree (only in segment_copy: {only_copy}, "
+            f"only in subject_templates: {only_subjects})"
+        )
 
 
 def _coerce_int_keys(mapping: dict) -> dict:
@@ -92,6 +115,10 @@ def offer_pack_from_dict(data: dict) -> OfferPack:
         )
     except KeyError as exc:
         raise OfferPackError(f"offer pack missing required field: {exc}") from exc
+    except (ValueError, TypeError) as exc:
+        # Non-numeric step keys etc. must surface as OfferPackError: the CLI
+        # guards spend on this exception type failing BEFORE research runs.
+        raise OfferPackError(f"offer pack malformed: {exc}") from exc
     _validate(pack)
     return pack
 
@@ -120,20 +147,11 @@ def load_offer_pack(name_or_path: str | Path = DEFAULT_PACK) -> OfferPack:
         path = PACKS_DIR / f"{name_or_path}.json"
     if not path.is_file():
         raise OfferPackError(f"offer pack not found: {path}")
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        # A syntactically broken pack must fail as OfferPackError — callers
+        # (process_batch, run_batches) pre-flight the pack precisely so a bad
+        # pack never costs a batch of research fetches and Apify credits.
+        raise OfferPackError(f"offer pack '{path.name}' is not valid JSON: {exc}") from exc
     return offer_pack_from_dict(data)
-
-
-def save_offer_pack(pack: OfferPack, path: str | Path) -> Path:
-    out = Path(path)
-    if not out.suffix:
-        out = PACKS_DIR / f"{path}.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(offer_pack_to_dict(pack), indent=2), encoding="utf-8")
-    return out
-
-
-def list_offer_packs() -> list[str]:
-    if not PACKS_DIR.is_dir():
-        return []
-    return sorted(p.stem for p in PACKS_DIR.glob("*.json"))

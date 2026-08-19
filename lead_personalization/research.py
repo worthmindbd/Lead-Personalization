@@ -251,6 +251,43 @@ def build_signal(
     return signal, "; ".join(notes_parts), strength
 
 
+def fallback_research_item(row: dict, error: str) -> dict:
+    """A full-shape research item for a lead whose research crashed.
+
+    A mailable lead is never dropped, and one bad URL or a renderer crash must
+    not cost the whole batch's completed work. The fallback carries an honest
+    weak signal — no fabricated observation — so the copywriter serves the
+    generic variant for this lead.
+    """
+    company = row.get("company_name") or row.get("Name", "")
+    return {
+        "row_index": int(row.get("row_index", 0)),
+        "first_name": row.get("first_name", ""),
+        "last_name": row.get("last_name", ""),
+        "title": row.get("title", ""),
+        "company": company,
+        "email": row.get("primary_email", ""),
+        "website": (row.get("Website") or "").strip(),
+        "linkedin": (row.get("Linkedin_URL") or "").strip(),
+        "twitter": (row.get("Twitter_URL") or "").strip(),
+        "facebook": (row.get("Facebook_URL") or "").strip(),
+        "outreach_tier": row.get("outreach_tier") or "company",
+        "aevora_segment": row.get("aevora_segment", ""),
+        "research_signal": "no signal available (research failed)",
+        "research_notes": f"Segment: {row.get('aevora_segment', '')}; "
+        f"research error: {error[:120]}",
+        "signal_strength": "weak",
+        "evidence": "weak",
+        "snippet": "",
+        "has_video_on_site": False,
+        "social_channel": social_channel(row),
+        "linkedin_topic": "",
+        "linkedin_posts_count": 0,
+        "linkedin_last_post": "",
+        "linkedin_posts": [],
+    }
+
+
 def research_lead(
     row: dict,
     li_scraped: dict | None = None,
@@ -295,7 +332,9 @@ def research_lead(
         "linkedin": (row.get("Linkedin_URL") or "").strip(),
         "twitter": (row.get("Twitter_URL") or "").strip(),
         "facebook": (row.get("Facebook_URL") or "").strip(),
-        "outreach_tier": "company",
+        # The tier normalize_row computed (person vs company) decides the
+        # greeting the copywriter uses; research never overrides it.
+        "outreach_tier": row.get("outreach_tier") or "company",
         "aevora_segment": row.get("aevora_segment", ""),
         "research_signal": signal,
         "research_notes": notes,

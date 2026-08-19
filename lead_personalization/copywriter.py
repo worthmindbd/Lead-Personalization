@@ -1,7 +1,9 @@
 """Deterministic copy engine: assemble 3-email sequences from an offer pack.
 
-Copy contract (GMB / company-tier lists):
-- Greeting is always "Hi," — no person name, no company name anywhere in body.
+Copy contract (dual-tier):
+- Greeting is "Hi {first_name}," for person-tier leads (named contact with a
+  non-generic address) and "Hi," for company-tier leads — and the company name
+  never appears in the body either way.
 - Email structure: observed issue -> our solution -> soft CTA.
 - Openers, solutions, and CTAs are drawn from the offer pack's variant pools,
   selected deterministically per lead (stable re-runs, campaign-wide variety).
@@ -18,6 +20,7 @@ import re
 from lead_personalization.offer_pack import OfferPack
 from lead_personalization.qa import qa, subject_has_spam, subject_is_fragment
 from lead_personalization.sanitize import sanitize_email
+from lead_personalization.segments import greeting_template
 from lead_personalization.subjects import build_subject
 
 
@@ -43,8 +46,25 @@ def trim_body(greeting: str, parts: list[str], cta: str, max_words: int = 100) -
         else:
             short = body_parts[0]
             words = short.split()
-            body_parts[0] = " ".join(words[: max(8, len(words) - 5)])
+            trimmed = " ".join(words[: max(8, len(words) - 5)])
+            if trimmed == short:
+                # Already at the floor (greeting + CTA alone can exceed the
+                # budget); stop instead of spinning forever.
+                break
+            body_parts[0] = trimmed
     return "\n\n".join([greeting, cta])
+
+
+def sequence_hook(research: dict) -> str:
+    """The prospect text subjects prefer: the LinkedIn topic when that is the
+    evidence, else the positioning snippet."""
+    if research.get("evidence") == "linkedin_posts" and research.get("linkedin_topic"):
+        return research["linkedin_topic"]
+    return research.get("snippet") or ""
+
+
+def _company_ref(row: dict, research: dict) -> str:
+    return (row.get("company_name") or research.get("company") or "").strip()
 
 
 def generate_sequence(
@@ -67,7 +87,7 @@ def generate_sequence(
     snippet = research.get("snippet", "")
     li_topic = research.get("linkedin_topic", "")
     channel = research.get("social_channel", "") or "social"
-    company = (row.get("company_name") or research.get("company") or "").strip()
+    company = _company_ref(row, research)
     city = (row.get("City") or "").strip()
     state = (row.get("State") or "").strip()
     loc = city or state or "your market"
@@ -77,7 +97,14 @@ def generate_sequence(
         loc = state if (state and state.lower() not in company.lower()) else "your area"
     peer = peer_phrase(row.get("First_category", ""))
 
-    greeting = offer_pack.greeting
+    # Dual-tier greeting: person tier greets by first name when the row's
+    # normalized tier says a real, named contact is reachable; everything else
+    # gets the safe "Hi,". greeting_template re-validates the name.
+    greeting = greeting_template(
+        research.get("outreach_tier") or row.get("outreach_tier") or "company",
+        research.get("first_name") or row.get("first_name") or "",
+        "",
+    )
 
     opener_tmpl, o_idx = _pick(offer_pack.openers[evidence], email, "opener")
     opener = opener_tmpl.format(
@@ -104,7 +131,7 @@ def generate_sequence(
 
     variant = f"{evidence}.o{o_idx}s{s_idx}a{a_idx}cl{cl_idx}su{su_idx}c{c1}{c2}{c3}"
 
-    hook = (li_topic if evidence == "linkedin_posts" else snippet) or ""
+    hook = sequence_hook(research)
     sequence: list[tuple[str, str]] = []
     used_subjects: set[str] = set()
     for step, parts in enumerate(plans, start=1):
@@ -131,16 +158,20 @@ def fix_sequence(
     offer_pack: OfferPack,
 ) -> list[tuple[str, str]]:
     segment = row.get("aevora_segment", "low_fit")
-    company = research.get("company", "")
+    company = _company_ref(row, research)
     signal = research.get("research_signal", "")
     key = research.get("email") or row.get("primary_email", "")
+    # Same hook generate_sequence used: a rebuilt subject must not lose the
+    # lead's specific evidence (a LinkedIn hook used to degrade permanently to
+    # a stock literal on the first rebuild).
+    hook = sequence_hook(research)
     fixed = []
     used_subjects: set[str] = set()
     for step, (subj, body) in enumerate(sequence, start=1):
         if subject_has_spam(subj) or subject_is_fragment(subj) or len(subj) > 60 or subj in used_subjects:
             subj = build_subject(
                 row, signal, segment, step, offer_pack.subject_templates,
-                used_subjects=used_subjects, key=key,
+                used_subjects=used_subjects, hook=hook, key=key,
             )
         if len(subj) > 60:
             cut = subj[:60]

@@ -20,8 +20,9 @@ why the pipeline still does it.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
+
+from lead_personalization.naming import slugify
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,10 +44,11 @@ def clean_prefix(raw: str) -> str:
 
     List titles reach here as slugs, but a slug is only as clean as the Drive
     folder it came from. Anything that would make the name ambiguous — a path
-    separator, a glob character — is collapsed to a dash.
+    separator, a glob character — is collapsed to a dash. The slug regex lives
+    in the library (lead_personalization.naming) so every stage derives the
+    same names; only the run-specific fallback lives here.
     """
-    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower()).strip("-")
-    return cleaned or DEFAULT_PREFIX
+    return slugify(raw, fallback=DEFAULT_PREFIX)
 
 
 def manifest_path(prefix: str = DEFAULT_PREFIX) -> Path:

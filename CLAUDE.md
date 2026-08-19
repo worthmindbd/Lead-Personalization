@@ -127,5 +127,6 @@ Batch manifest (`campaigns/*-batch-manifest.json`) tracks status: `pending` → 
 
 - Python 3.11+, deps in `requirements.txt`, install editable with `pip install -e .`
 - Node.js for Playwright (headless Chromium fallback in research): `npm install && npm run playwright:install`
-- API keys (optional, in `.env`): `APIFY_API_TOKEN` (LinkedIn posts), `REOON_API_KEY` (email verification)
+- API keys (optional, in `.env`): `APIFY_API_TOKEN` / `APIFY_FALLBACK_TOKENS` (LinkedIn posts, supports multi-token fallback), `REOON_API_KEY` (email verification)
 - Drive access via rclone remote named `gdrive` (requires personal OAuth client ID)
+

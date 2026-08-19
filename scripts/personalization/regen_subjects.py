@@ -38,11 +38,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "scripts" / "pipeline"))
 sys.path.insert(0, str(ROOT))
 
 from lead_personalization.copywriter import fix_sequence, generate_sequence  # noqa: E402
 from lead_personalization.offer_pack import load_offer_pack  # noqa: E402
 from personalization import build_enriched  # noqa: E402
+from run_pipeline import merge_into_cumulative  # noqa: E402
 
 STATE = ROOT / ".pipeline" / "state.json"
 
@@ -64,43 +66,6 @@ def _resolve_list(query: str) -> tuple[str, str, Path]:
                 raise SystemExit(f"workdir not found: {wd}")
             return title, slug, wd
     raise SystemExit(f"no pipeline list matches title/slug {query!r}")
-
-
-def _merge_into_cumulative(batch_rows: list[dict[str]], fieldnames: list[str],
-                           cumulative: Path) -> tuple[int, int]:
-    """Fold the rebuilt batch rows into the cumulative enriched CSV, keyed by email.
-
-    A faithful subset of ``merge_into_cumulative``: existing rows for these
-    emails are replaced (the subjects changed); rows for emails not in this run
-    are kept untouched.
-    """
-    rebuilt_by_email = {}
-    for r in batch_rows:
-        em = (r.get("primary_email") or r.get("Email") or "").split("|")[0].strip().lower()
-        if em:
-            rebuilt_by_email[em] = r
-
-    existing = []
-    keep = []
-    if cumulative.is_file():
-        with cumulative.open(newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            out_fields = list(reader.fieldnames or fieldnames)
-            for row in reader:
-                em = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
-                if em in rebuilt_by_email:
-                    existing.append(em)
-                else:
-                    keep.append(row)
-    else:
-        out_fields = list(fieldnames)
-
-    out_rows = keep + [rebuilt_by_email[e] for e in rebuilt_by_email]
-    with cumulative.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=out_fields, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(out_rows)
-    return len(rebuilt_by_email), len(out_rows)
 
 
 def main() -> None:
@@ -126,9 +91,8 @@ def main() -> None:
     pack = load_offer_pack(args.offer_pack)
     print(f"regen: list={title} slug={slug} stamps={[d.name for d in run_dirs]} pack={args.offer_pack}")
 
-    # Rebuilt enriched rows accumulated across every batch of every stamp.
-    all_rebuilt: list[dict[str]] = []
-    out_fieldnames: list[str] = []
+    # Rebuilt enriched CSVs accumulated across every batch of every stamp.
+    rebuilt_files: list[Path] = []
 
     for run_dir in run_dirs:
         research_files = sorted(run_dir.glob("*-batch-*-research.json"))
@@ -147,7 +111,7 @@ def main() -> None:
             source = normalized
 
             research_items = json.loads(rp.read_text(encoding="utf-8"))
-            with source.open(newline="", encoding="utf-8") as fh:
+            with source.open(newline="", encoding="utf-8-sig") as fh:
                 all_rows = list(csv.DictReader(fh))
 
             copy_out: dict[str, list[list[str]]] = {}
@@ -160,7 +124,7 @@ def main() -> None:
                     raise SystemExit(f"missing normalized row for {em}")
                 seq, _variant = generate_sequence(src, item, pack)
                 seq = fix_sequence(seq, src, item, pack)
-                copy_out[em] = [[s, b] for s, b in seq]
+                copy_out[str(item.get("row_index", em))] = [[s, b] for s, b in seq]
 
             copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
 
@@ -177,21 +141,18 @@ def main() -> None:
                 copy_dir=run_dir,
                 prefix=slug,
             )
-            built = Path(res["csv"])
-            with built.open(newline="", encoding="utf-8") as fh:
-                reader = csv.DictReader(fh)
-                if not out_fieldnames:
-                    out_fieldnames = list(reader.fieldnames or [])
-                all_rebuilt.extend(reader)
+            rebuilt_files.append(Path(res["csv"]))
 
-            print(f"  batch {batch_id}: {len(research_items)} leads -> {built.name}")
+            print(f"  batch {batch_id}: {len(research_items)} leads -> {Path(res['csv']).name}")
 
-    if not all_rebuilt:
+    if not rebuilt_files:
         raise SystemExit("nothing rebuilt — no batch artifacts matched")
 
     cumulative = workdir / f"{workdir.name}-enriched.csv"
-    added, total = _merge_into_cumulative(all_rebuilt, out_fieldnames, cumulative)
-    print(f"merged: replaced {added} rebuilt lead(s) -> {total} total in {cumulative.name}")
+    added, total = merge_into_cumulative(
+        rebuilt_files, cumulative, replace_existing=True
+    )
+    print(f"merged: replaced/regenerated {added} lead(s) -> {total} total in {cumulative.name}")
 
 
 if __name__ == "__main__":

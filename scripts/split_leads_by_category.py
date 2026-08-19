@@ -8,17 +8,20 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from lead_personalization.naming import slugify as _slugify  # noqa: E402
+
 LEADS_DIR = ROOT / "leads"
 MERGED_OUTPUT = LEADS_DIR / "all-leads-with-email.csv"
 CATEGORY_FIELD = "First_category"
 EMAIL_FIELD = "Email"
 UNCATEGORIZED = "uncategorized"
+MANIFEST_NAME = "split-manifest.md"
 
 
 def slugify(text: str) -> str:
-    slug = text.strip().lower()
-    slug = re.sub(r"[^a-z0-9]+", "-", slug)
-    return slug.strip("-") or UNCATEGORIZED
+    return _slugify(text, fallback=UNCATEGORIZED)
 
 
 def has_email(row: dict) -> bool:
@@ -46,7 +49,7 @@ def unique_slug(slug: str, used: set[str]) -> str:
 
 def write_group(path: Path, fieldnames: list[str], rows: list[dict]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -68,7 +71,7 @@ def write_manifest(path: Path, entries: list[tuple[str, str, int]]) -> None:
 
 
 def split_leads(source: Path, output_dir: Path = LEADS_DIR) -> list[tuple[str, str, int]]:
-    with source.open(newline="", encoding="utf-8") as handle:
+    with source.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         fieldnames = reader.fieldnames
         if not fieldnames:
@@ -96,7 +99,7 @@ def split_leads(source: Path, output_dir: Path = LEADS_DIR) -> list[tuple[str, s
         write_group(output_dir / filename, fieldnames, rows)
         manifest_entries.append((filename, category, len(rows)))
 
-    manifest_path = output_dir / "split-manifest.md"
+    manifest_path = output_dir / MANIFEST_NAME
     write_manifest(manifest_path, manifest_entries)
 
     print(f"Source: {source}")
@@ -114,24 +117,53 @@ def split_leads(source: Path, output_dir: Path = LEADS_DIR) -> list[tuple[str, s
     return manifest_entries
 
 
+def _manifest_source_files(input_dir: Path) -> list[Path] | None:
+    """The files the split itself wrote, from its own manifest.
+
+    Globbing ``*.csv`` in ``leads/`` used to sweep in verified, normalized and
+    enriched outputs of the other scripts — duplicating rows and polluting the
+    raw pool with copy columns. The manifest is the record of what belongs.
+    """
+    manifest = input_dir / MANIFEST_NAME
+    if not manifest.is_file():
+        return None
+    files: list[Path] = []
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("| `"):
+            continue
+        name = line.split("`", 2)[1]
+        path = input_dir / name
+        if path.is_file():
+            files.append(path)
+    return files or None
+
+
 def merge_leads(
     input_dir: Path = LEADS_DIR,
     output_path: Path = MERGED_OUTPUT,
 ) -> int:
-    source_files = sorted(
-        path
-        for path in input_dir.glob("*.csv")
-        if path.resolve() != output_path.resolve()
-    )
+    source_files = _manifest_source_files(input_dir)
+    if source_files is None:
+        # No split manifest on disk (legacy checkout): fall back to the glob,
+        # minus the pipeline's working directory.
+        source_files = sorted(
+            path
+            for path in input_dir.glob("*.csv")
+            if path.resolve() != output_path.resolve()
+            and not str(path).startswith(str(input_dir / "pipeline") + "/")
+        )
+    source_files = [p for p in source_files if p.resolve() != output_path.resolve()]
     if not source_files:
         raise ValueError(f"No CSV files found in {input_dir}")
 
     merged_rows: list[dict] = []
+    seen_emails: set[str] = set()
     fieldnames: list[str] | None = None
     skipped_no_email = 0
 
     for source_file in source_files:
-        with source_file.open(newline="", encoding="utf-8") as handle:
+        with source_file.open(newline="", encoding="utf-8-sig") as handle:
             reader = csv.DictReader(handle)
             if not reader.fieldnames:
                 continue
@@ -141,6 +173,10 @@ def merge_leads(
                 if not has_email(row):
                     skipped_no_email += 1
                     continue
+                email = (row.get(EMAIL_FIELD) or "").strip().lower()
+                if email in seen_emails:
+                    continue
+                seen_emails.add(email)
                 merged_rows.append(row)
 
     if not fieldnames:

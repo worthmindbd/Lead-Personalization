@@ -1,23 +1,16 @@
-"""High-level pipeline: normalize rows and personalize them end to end.
+"""Row normalization: raw GMB export rows in, research-ready rows out.
 
-These are in-memory primitives (lists of dict rows in, structured results out)
-so the web app can drive research + copy against a database without the
-manifest/file orchestration the CLI uses. The copy is fully deterministic.
+Pure in-memory primitives (lists of dict rows in, structured rows out); the
+CSV/JSON file orchestration lives in ``scripts/personalization/normalize_leads.py``.
+The copy path (research -> sequence) is driven by ``scripts/personalization/process_batch.py``
+using ``lead_personalization.research`` + ``copywriter`` directly.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
-from pathlib import Path
 from urllib.parse import urlparse
 
-from lead_personalization.config import Config
-from lead_personalization.copywriter import fix_sequence, generate_sequence
-from lead_personalization.offer_pack import OfferPack
-from lead_personalization.renderers import NodePlaywrightRenderer, PageRenderer
-from lead_personalization.research import research_lead
-from lead_personalization import linkedin
 from lead_personalization.segments import (
     is_generic_email,
     is_plausible_first_name,
@@ -187,121 +180,3 @@ def normalize_rows(rows: list[dict]) -> list[dict]:
 
 def normalized_fieldnames(source_fields: list[str]) -> list[str]:
     return list(source_fields) + [f for f in DERIVED_FIELDS if f not in source_fields]
-
-
-# ---------------------------------------------------------------------------
-# Personalization (research + copy)
-# ---------------------------------------------------------------------------
-
-
-def default_renderer(config: Config) -> PageRenderer | None:
-    """Tier-2 renderer if render fallback is on and the script exists."""
-    if not config.render_fallback:
-        return None
-    renderer = NodePlaywrightRenderer(
-        script_path=config.render_script,
-        cwd=config.root,
-        timeout_s=config.render_timeout_s,
-    )
-    return renderer if renderer.available else None
-
-
-def warm_linkedin(rows: list[dict], config: Config) -> dict:
-    """Pre-scrape LinkedIn posts for all rows in one batched, cached call."""
-    if not config.linkedin_enrich:
-        return {}
-    urls = [
-        (r.get("Linkedin_URL") or "").strip()
-        for r in rows
-        if (r.get("Linkedin_URL") or "").strip()
-    ]
-    if not urls:
-        return {}
-    try:
-        return linkedin.scrape_profiles(
-            urls,
-            cache_file=config.apify_cache_file,
-            token=config.apify_token,
-            max_posts=config.linkedin_max_posts,
-        )
-    except Exception as exc:  # noqa: BLE001 - degrade gracefully, copy still works
-        print(f"LinkedIn enrichment skipped: {exc}")
-        return {}
-
-
-def write_copy(
-    row: dict,
-    research: dict,
-    offer_pack: OfferPack,
-    *,
-    key_salt: str = "",
-) -> tuple[list[dict], str]:
-    """Generate + QA-fix a sequence from existing research (no re-research)."""
-    seq, variant = generate_sequence(row, research, offer_pack, key_salt=key_salt)
-    seq = fix_sequence(seq, row, research, offer_pack)
-    return [{"subject": s, "body": b} for s, b in seq], variant
-
-
-def personalize_row(
-    row: dict,
-    offer_pack: OfferPack,
-    config: Config,
-    *,
-    li_scraped: dict | None = None,
-    renderer: PageRenderer | None = None,
-    key_salt: str = "",
-) -> dict:
-    """Research one row and generate its 3-email sequence."""
-    item = research_lead(
-        row,
-        li_scraped or {},
-        renderer=renderer,
-        render_fallback=config.render_fallback,
-    )
-    sequence, variant = write_copy(row, item, offer_pack, key_salt=key_salt)
-    item["copy_variant"] = variant
-    return {
-        "research": item,
-        "sequence": sequence,
-        "variant": variant,
-    }
-
-
-def personalize_rows(
-    rows: list[dict],
-    offer_pack: OfferPack,
-    config: Config,
-    *,
-    renderer: PageRenderer | None = None,
-    warm: bool = True,
-    on_progress: Callable[[int, int, dict], None] | None = None,
-) -> list[dict]:
-    """Research + write copy for a list of normalized rows."""
-    if renderer is None:
-        renderer = default_renderer(config)
-    li_scraped = warm_linkedin(rows, config) if warm else {}
-
-    results: list[dict] = []
-    total = len(rows)
-    for i, row in enumerate(rows, start=1):
-        result = personalize_row(
-            row, offer_pack, config, li_scraped=li_scraped, renderer=renderer
-        )
-        results.append(result)
-        if on_progress:
-            on_progress(i, total, result["research"])
-    return results
-
-
-# ---------------------------------------------------------------------------
-# Thin file helpers (used by CLI wrappers / smoke tests)
-# ---------------------------------------------------------------------------
-
-
-def read_csv_rows(path: str | Path) -> tuple[list[dict], list[str]]:
-    import csv
-
-    with Path(path).open(newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        fields = list(reader.fieldnames or [])
-        return list(reader), fields

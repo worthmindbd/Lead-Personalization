@@ -242,10 +242,14 @@ _add(
     "Airline",
 )
 
+# The one generic-inbox definition for the whole repo: both the primary-email
+# pick (clean stage) and the tier resolution (normalize) consult it, so a
+# divergence here made the two stages disagree about the same address.
 GENERIC_EMAIL_PREFIXES = (
     "info", "hello", "contact", "support", "sales", "admin", "office",
-    "team", "inquiries", "inquiry", "help", "mail", "service", "booking",
-    "reservations", "customerservice", "reception", "general",
+    "team", "inquiries", "enquiries", "inquiry", "help", "mail", "service",
+    "booking", "reservations", "customerservice", "reception", "general",
+    "noreply",
 )
 
 BUSINESS_NAME_MARKERS = re.compile(

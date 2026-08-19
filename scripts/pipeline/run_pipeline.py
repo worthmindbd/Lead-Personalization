@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import json
 import os
 import re
@@ -32,12 +33,15 @@ import shutil
 import subprocess
 import sys
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil
+from lead_personalization.naming import slugify  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization.clean_gmb_leads import (  # noqa: E402
     campaign_stem as clean_campaign_stem,
@@ -52,13 +56,21 @@ from personalization.normalize_leads import (  # noqa: E402
 from verify_emails_reoon import (  # noqa: E402
     CACHE_FILE as REOON_CACHE_FILE,
     EMAIL_COLUMNS,
+    KEEP_STATUSES,
     REJECTED_FILE as REOON_REJECTED_FILE,
     extract_emails_from_csv,
     load_dotenv,
+    write_verified_list,
 )
 
-PY = str(ROOT / ".venv" / "bin" / "python")
+PY = str(ROOT / ".venv" / "bin" / "python") if (ROOT / ".venv" / "bin" / "python").exists() else sys.executable
+# A hung child (stuck Reoon poll, wedged Playwright render) must not wedge the
+# whole daily run; each subprocess call gets a generous ceiling.
+VERIFY_TIMEOUT_S = 60 * 60
+PERSONALIZE_TIMEOUT_S = 4 * 60 * 60
+REPORT_TIMEOUT_S = 30 * 60
 STATE_FILE = ROOT / ".pipeline" / "state.json"
+PIPELINE_LOCK_FILE = ROOT / ".pipeline" / "run.lock"
 CONTACTED_FILE = ROOT / ".pipeline" / "contacted.json"
 WORK_ROOT = ROOT / "leads" / "pipeline"
 ENRICHED_DIR = ROOT / "leads" / "enriched"
@@ -82,12 +94,7 @@ def now_iso() -> str:
 
 
 def run_stamp() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S")
-
-
-def slugify(title: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    return slug or "list"
+    return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
 
 def banner(text: str) -> None:
@@ -100,16 +107,11 @@ def stage_line(stage: str, detail: str) -> None:
 
 
 def load_json(path: Path, default):
-    if not path.is_file():
-        return default
-    return json.loads(path.read_text(encoding="utf-8"))
+    return fsutil.load_json(path, default)
 
 
 def save_json_atomic(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    fsutil.atomic_write_json(path, data)
 
 
 def load_rows(path: Path) -> tuple[list[str], list[dict]]:
@@ -132,9 +134,10 @@ def csv_row_count(path: Path) -> int:
     if not path.is_file():
         return 0
     # Parse properly: enriched rows contain quoted multi-line email bodies,
-    # so counting raw lines would overcount.
+    # so counting raw lines would overcount. Blank lines yield empty rows and
+    # must not inflate the counts upload/reconcile decisions are based on.
     with path.open(newline="", encoding="utf-8-sig") as f:
-        return max(0, sum(1 for _ in csv.reader(f)) - 1)
+        return max(0, sum(1 for row in csv.reader(f) if row) - 1)
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +149,32 @@ def load_state() -> dict:
     state = load_json(STATE_FILE, {"version": 1, "lists": {}})
     state.setdefault("lists", {})
     return state
+
+
+@contextmanager
+def pipeline_run_lock():
+    """One pipeline at a time.
+
+    state.json / contacted.json / rejected.json are whole-file
+    read-modify-write, so two concurrent runs (cron + manual, the exact daily
+    cadence this orchestrator targets) would silently erase each other's stage
+    transitions, upload flags and contacted claims — the claims are what keeps
+    one person from receiving two sequences. Atomic writes protect against
+    crashes; this lock protects against concurrency.
+    """
+    PIPELINE_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with PIPELINE_LOCK_FILE.open("w", encoding="utf-8") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit(
+                "Another pipeline run is active — exiting instead of racing "
+                "it for state.json/contacted.json. Re-run once it finishes."
+            )
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def save_state(state: dict) -> None:
@@ -187,7 +216,23 @@ def rclone(
 ) -> subprocess.CompletedProcess:
     cmd = ["rclone", *args]
     print(f"   $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    try:
+        return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    except FileNotFoundError:
+        raise SystemExit(
+            "rclone not found on PATH — install it and configure the remote "
+            "(see https://rclone.org/drive/)."
+        )
+    except subprocess.CalledProcessError as exc:
+        # Surface rclone's own error instead of an opaque traceback: auth
+        # failures in particular must tell the user to stop and re-authorize.
+        detail = ((exc.stderr or "") if capture else "") .strip() or f"exit {exc.returncode}"
+        if not detail and capture:
+            detail = (exc.stdout or "").strip()
+        raise SystemExit(
+            f"rclone failed: {detail or 'exit ' + str(exc.returncode)}\n"
+            "  If this is an auth error, re-authorize with: rclone lsd gdrive:"
+        ) from exc
 
 
 def drive_list_raw(remote: str) -> list[dict]:
@@ -430,6 +475,30 @@ def seed_cache_from_verified(verified_csv: Path) -> int:
     return added
 
 
+def verified_list_is_complete(cleaned: Path, verified: Path) -> bool:
+    """True when the verified CSV holds every cleaned address the cache passed.
+
+    The stranding scenario this guards: a stale Drive copy overwrites a larger
+    local verified list, every dropped address is still in the cache (so
+    pending == 0), and the verifier would otherwise skip forever — the list
+    would never again contain those mailable rows.
+    """
+    if not verified.is_file():
+        return False
+    try:
+        cleaned_emails = extract_emails_from_csv(cleaned)
+        verified_emails = set(extract_emails_from_csv(verified))
+    except SystemExit:
+        return True  # no recognisable email column — nothing to compare
+    cache = load_json(REOON_CACHE_FILE, {})
+    passed = {
+        e
+        for e in cleaned_emails
+        if str(cache.get(e, {}).get("status", "")).lower() in KEEP_STATUSES
+    }
+    return passed <= verified_emails
+
+
 def stage_verify(title: str, entry: dict, args) -> None:
     cleaned = ROOT / entry["cleaned_csv"]
     workdir = workdir_for(entry)
@@ -441,20 +510,25 @@ def stage_verify(title: str, entry: dict, args) -> None:
 
     if args.no_verify:
         stage_line("verify", f"skipped (--no-verify). Pending: {pending} emails")
-    elif not reoon_key_available():
+    elif pending and not reoon_key_available():
         stage_line(
             "verify",
             f"deferred: REOON_API_KEY not configured. Pending: {pending} emails",
         )
-    elif pending == 0 and verified.is_file():
+    elif pending == 0 and verified.is_file() and verified_list_is_complete(cleaned, verified):
         stage_line("verify", "all emails already verified (cache hit, skip)")
+    elif pending == 0:
+        # Nothing left to spend credits on, but the verified list is missing
+        # (or lost rows). Rebuild it locally from the cache — no API calls.
+        write_verified_list(cleaned, verified, load_json(REOON_CACHE_FILE, {}))
+        stage_line("verify", "rebuilt verified list from cache (no API spend)")
     else:
         stage_line("verify", f"{pending} pending — running Reoon (cap {args.verify_limit}/day)")
         cmd = [
             PY, str(ROOT / "scripts" / "verify_emails_reoon.py"),
             str(cleaned), "-o", str(verified), "--limit", str(args.verify_limit),
         ]
-        proc = subprocess.run(cmd, cwd=ROOT)
+        proc = subprocess.run(cmd, cwd=ROOT, timeout=VERIFY_TIMEOUT_S)
         if proc.returncode != 0:
             print(f"   WARNING: verify exited {proc.returncode}; continuing with existing verified list")
 
@@ -627,26 +701,54 @@ def batch_artifact_paths(batch_ids: list[str], entry: dict) -> list[Path]:
     return paths
 
 
-def merge_into_cumulative(batch_files: list[Path], cumulative: Path) -> tuple[int, int]:
-    """Append rows from batch enriched CSVs into the cumulative list (dedup by email)."""
-    fieldnames: list[str] = []
-    rows: list[dict] = []
-    seen: set[str] = set()
-    if cumulative.is_file():
-        fieldnames, rows = load_rows(cumulative)
-        seen = {e for e in (row_email(r) for r in rows) if e}
-    before = len(rows)
+def merge_into_cumulative(
+    batch_files: list[Path], cumulative: Path, *, replace_existing: bool = False
+) -> tuple[int, int]:
+    """Append rows from batch enriched CSVs into the cumulative list (dedup by email).
+
+    With ``replace_existing`` (the subject-regen path), a batch row whose email
+    is already in the cumulative list REPLACES it — regenerated subjects must
+    overwrite the stale row, not be deduped away by it.
+    """
+    batch_fieldnames: list[str] = []
+    batch_rows: list[dict] = []
+    batch_emails: set[str] = set()
     for path in batch_files:
-        fnames, batch_rows = load_rows(path)
+        fnames, rows = load_rows(path)
         for name in fnames:
+            if name not in batch_fieldnames:
+                batch_fieldnames.append(name)
+        for row in rows:
+            email = row_email(row)
+            if not email:
+                continue
+            batch_rows.append(row)
+            batch_emails.add(email)
+
+    fieldnames: list[str] = []
+    kept_rows: list[dict] = []
+    if cumulative.is_file():
+        cum_fnames, existing = load_rows(cumulative)
+        for name in cum_fnames:
             if name not in fieldnames:
                 fieldnames.append(name)
-        for row in batch_rows:
-            email = row_email(row)
-            if not email or email in seen:
+        for row in existing:
+            if replace_existing and row_email(row) in batch_emails:
                 continue
-            seen.add(email)
-            rows.append(row)
+            kept_rows.append(row)
+    for name in batch_fieldnames:
+        if name not in fieldnames:
+            fieldnames.append(name)
+
+    seen = {e for e in (row_email(r) for r in kept_rows) if e}
+    rows = list(kept_rows)
+    for row in batch_rows:
+        email = row_email(row)
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        rows.append(row)
+
     cumulative.parent.mkdir(parents=True, exist_ok=True)
     tmp = cumulative.with_suffix(".tmp")
     with tmp.open("w", newline="", encoding="utf-8") as f:
@@ -654,7 +756,7 @@ def merge_into_cumulative(batch_files: list[Path], cumulative: Path) -> tuple[in
         writer.writeheader()
         writer.writerows(rows)
     tmp.replace(cumulative)
-    return len(rows) - before, len(rows)
+    return len(rows) - len(kept_rows), len(rows)
 
 
 def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | None:
@@ -784,7 +886,7 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
             cmd.append("--no-render")
         if args.no_linkedin:
             cmd.append("--no-linkedin")
-        proc = subprocess.run(cmd, cwd=ROOT)
+        proc = subprocess.run(cmd, cwd=ROOT, timeout=PERSONALIZE_TIMEOUT_S)
         if proc.returncode != 0:
             raise RuntimeError(
                 f"run_batches exited {proc.returncode} — state kept, next run resumes this delta"
@@ -884,8 +986,16 @@ def adopt_authoritative_csv(
     folder holds several CSVs, each candidate is downloaded, its data rows
     counted with the shared csv_row_count helper (quoted multi-line bodies are
     not overcounted), and the largest is kept as the baseline.
+
+    Never adopts a Drive copy that holds FEWER rows than the local file
+    already has: the local file is ahead exactly when a previous run advanced
+    a stage whose upload failed, and clobbering it (e.g. replacing a 500-row
+    verified list with Drive's stale 200-row copy) would strand every mailable
+    address in the difference — the verified stage would see zero pending and
+    never rebuild them.
     """
-    if len(csvs) == 1:
+    local_rows = csv_row_count(dest)
+    if len(csvs) == 1 and local_rows == 0:
         drive_download_file(remote, folder, title, csvs[0]["Name"], dest)
         return csv_row_count(dest)
     tmpdir = dest.parent / ".reconcile-tmp"
@@ -899,9 +1009,10 @@ def adopt_authoritative_csv(
             rows = csv_row_count(tmp)
             if rows > best_rows:
                 best_rows, best_path = rows, tmp
-        if best_path is not None:
+        if best_path is not None and best_rows > local_rows:
             shutil.move(str(best_path), str(dest))
-        return max(best_rows, 0)
+            return best_rows
+        return max(local_rows, 0)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -1019,7 +1130,9 @@ def finalize_report(args) -> None:
     if not args.local_only:
         cmd += ["--upload", "--remote", args.remote]
     try:
-        subprocess.run(cmd, cwd=ROOT, check=True)
+        subprocess.run(cmd, cwd=ROOT, check=True, timeout=REPORT_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        print("   WARNING: report generation timed out; skipped this run.")
     except Exception as exc:  # noqa: BLE001 — reporting must not fail the run
         print(f"   WARNING: could not regenerate/sync the report: {exc}")
 
@@ -1184,6 +1297,12 @@ def main() -> None:
         print_status(state)
         return
 
+    # Everything below mutates shared state files; one run at a time.
+    with pipeline_run_lock():
+        _run(args, state)
+
+
+def _run(args, state: dict) -> None:
     if args.backfill_rejected:
         found = backfill_rejected(state, apply=args.apply)
         total = sum(n for _, n in found)

@@ -24,6 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from lead_personalization.config import load_dotenv  # noqa: E402
 from lead_personalization.linkedin import (  # noqa: E402,F401
     ACTOR,
     DEFAULT_MAX_POSTS,
@@ -31,6 +32,7 @@ from lead_personalization.linkedin import (  # noqa: E402,F401
     HTTP_TIMEOUT,
     clean_post_topic,
     li_handle,
+    parse_tokens,
     posts_for_url,
 )
 from lead_personalization.linkedin import scrape_profiles as _scrape_profiles  # noqa: E402
@@ -39,20 +41,26 @@ STATE_DIR = ROOT / ".apify"
 CACHE_FILE = STATE_DIR / "linkedin_cache.json"
 
 
-def load_dotenv(path: Path = ROOT / ".env") -> None:
-    if not path.is_file():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-
-
 def api_token() -> str:
-    load_dotenv()
+    load_dotenv(ROOT / ".env")
     return os.environ.get("APIFY_API_TOKEN", "").strip()
+
+
+def api_tokens() -> list[str]:
+    load_dotenv(ROOT / ".env")
+    env = os.environ
+    raw_fallbacks = (
+        env.get("APIFY_API_TOKENS", "").strip()
+        or env.get("APIFY_FALLBACK_TOKENS", "").strip()
+        or env.get("APIFY_API_FALLBACK_TOKENS", "").strip()
+    )
+    primary = api_token()
+    combined = []
+    if primary:
+        combined.append(primary)
+    if raw_fallbacks:
+        combined.append(raw_fallbacks)
+    return parse_tokens(",".join(combined))
 
 
 def scrape_profiles(
@@ -70,7 +78,7 @@ def scrape_profiles(
     without LinkedIn" into "the batch dies". The check happens before delegating
     so there is one path, not two.
     """
-    token = api_token()
-    if not token:
+    tokens = api_tokens()
+    if not tokens:
         raise SystemExit("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")
-    return _scrape_profiles(urls, CACHE_FILE, token, max_posts, force=force)
+    return _scrape_profiles(urls, CACHE_FILE, tokens, max_posts, force=force)

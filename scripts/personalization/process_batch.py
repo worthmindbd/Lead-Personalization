@@ -32,24 +32,31 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization.config import Config
 from lead_personalization.copywriter import fix_sequence, generate_sequence  # noqa: E402
+from lead_personalization.naming import campaign_stem  # noqa: E402
 from lead_personalization.offer_pack import OfferPackError, load_offer_pack  # noqa: E402
 from lead_personalization.renderers import NodePlaywrightRenderer  # noqa: E402
-from lead_personalization.research import research_lead  # noqa: E402
+from lead_personalization.research import fallback_research_item, research_lead  # noqa: E402
 from personalization import artifacts, linkedin_apify  # noqa: E402
 from personalization.build_enriched import build_batch  # noqa: E402
 from personalization.manifest_lock import update_batch_status  # noqa: E402
 from personalization.merge_enriched import merge_enriched  # noqa: E402
 
+# Runtime knobs come from the library's Config (.env aware), so there is one
+# definition of each path/flag/limit instead of a per-script copy. The module
+# names stay: flags and tests flip them after import.
+_CONFIG = Config.from_env(root=ROOT)
+
 # Headless-render fallback for JS-built sites (Wix, Squarespace, React).
 # Disable with --no-render if node/playwright is unavailable.
-RENDER_FALLBACK = True
-RENDER_SCRIPT = ROOT / "lead_personalization" / "render_page.js"
-RENDER_TIMEOUT_S = 45
+RENDER_FALLBACK = _CONFIG.render_fallback
+RENDER_SCRIPT = _CONFIG.render_script
+RENDER_TIMEOUT_S = _CONFIG.render_timeout_s
 
 # LinkedIn recent-post enrichment via Apify. Disable with --no-linkedin.
-LINKEDIN_ENRICH = True
-LINKEDIN_MAX_POSTS = 2
+LINKEDIN_ENRICH = _CONFIG.linkedin_enrich
+LINKEDIN_MAX_POSTS = _CONFIG.linkedin_max_posts
 
 # The words. Swapping packs re-skins the campaign without touching this file;
 # override with --offer-pack, the way --no-render overrides RENDER_FALLBACK.
@@ -72,16 +79,7 @@ def merged_output_path(source: Path, prefix: str | None = None) -> Path:
     """
     if prefix:
         return artifacts.merged_csv(prefix)
-    stem = source.stem.lower().replace("-38k", "")
-    for suffix in ("-with-email", "-cleaned", "-verified", "-valid", "-normalized"):
-        if stem.endswith(suffix):
-            stem = stem[: -len(suffix)]
-    parts = []
-    for part in stem.split("-"):
-        if part.isdigit() or part in {"cleaned", "verified", "valid", "normalized", "with", "email"}:
-            break
-        parts.append(part)
-    campaign = "-".join(parts) or "mixed"
+    campaign = campaign_stem(source.stem)
     return ROOT / "leads" / f"{campaign}-enriched.csv"
 
 
@@ -105,7 +103,7 @@ def process_batch(
         manifest.get("prefix") or artifacts.prefix_from_manifest_name(manifest_path)
     )
 
-    with source.open(newline="", encoding="utf-8") as handle:
+    with source.open(newline="", encoding="utf-8-sig") as handle:
         all_rows = list(csv.DictReader(handle))
 
     # Every lead in the list gets copy — no fit-based exclusion.
@@ -141,15 +139,30 @@ def process_batch(
     # this module is already loaded.
     renderer = NodePlaywrightRenderer(RENDER_SCRIPT, ROOT, RENDER_TIMEOUT_S)
 
-    for row in batch_rows:
-        item = research_lead(
-            row, li_scraped, renderer=renderer, render_fallback=RENDER_FALLBACK
-        )
+    for row_index, row in zip(batch["rows"], batch_rows):
+        try:
+            item = research_lead(
+                row, li_scraped, renderer=renderer, render_fallback=RENDER_FALLBACK
+            )
+        except Exception as exc:  # noqa: BLE001 — one lead must not lose the batch
+            item = fallback_research_item(row, f"{type(exc).__name__}: {exc}")
+            print(
+                f"Batch {batch_id}: research failed for row "
+                f"{row_index} ({exc}); using weak-signal copy",
+                file=sys.stderr,
+            )
+        # The manifest index is the authoritative row key: the CSV's
+        # row_index column can be absent, and research_lead would default
+        # every such lead to 0.
+        item["row_index"] = row_index
         seq, variant = generate_sequence(row, item, offer_pack)
         seq = fix_sequence(seq, row, item, offer_pack)
         item["copy_variant"] = variant
         research_out.append(item)
-        copy_out[item["email"]] = [[s, b] for s, b in seq]
+        # Keyed by row_index, not email: two rows can share an address (or have
+        # none), and keying by email silently gave every duplicate the wrong
+        # lead's sequence.
+        copy_out[str(row_index)] = [[s, b] for s, b in seq]
 
     research_path = artifacts.research_json(prefix, batch_id, campaigns_dir)
     copy_path = artifacts.copy_json(prefix, batch_id, campaigns_dir)

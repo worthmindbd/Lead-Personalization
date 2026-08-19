@@ -163,10 +163,13 @@ def test_every_row_in_the_batch_gets_copy(tmp_path, monkeypatch) -> None:
     copy = json.loads(Path(out["result"]["copy"]).read_text(encoding="utf-8"))
     assert len(research) == 6
     assert len(copy) == 6
-    # Every address that went in has a full 3-email sequence coming out.
-    for i in range(6):
-        assert copy[f"lead{i}@example-biz.com"]
-        assert len(copy[f"lead{i}@example-biz.com"]) == 3
+    # Every address that went in has a full 3-email sequence coming out, keyed
+    # by row_index (emails can be duplicated or missing across rows).
+    assert {item["email"] for item in research} == {
+        f"lead{i}@example-biz.com" for i in range(6)
+    }
+    for seq in copy.values():
+        assert len(seq) == 3
 
 
 def test_a_competitor_alone_in_a_batch_still_gets_copy(tmp_path, monkeypatch) -> None:
@@ -250,3 +253,89 @@ def test_the_per_domain_cap_is_still_enforced(tmp_path) -> None:
     )
     out = clean_gmb_leads(source, tmp_path / "out.csv")
     assert len(out) == 2
+
+
+def test_two_rows_sharing_an_email_each_get_their_own_sequence(
+    tmp_path, monkeypatch
+) -> None:
+    """Copy used to be keyed by email: duplicates silently received the second
+    lead's sequence and the first lead's copy was lost."""
+    rows = [
+        normalize_row(0, row("Custom home builder", "same@example-biz.com")),
+        normalize_row(1, row("Dentist", "same@example-biz.com")),
+    ]
+    source = tmp_path / "source.csv"
+    with source.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = tmp_path / "list-batch-manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {"prefix": "list",
+             "batches": [{"id": "001", "rows": [0, 1], "status": "pending"}]}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pb, "research_lead", _stub_research)
+    monkeypatch.setattr(pb, "LINKEDIN_ENRICH", False)
+
+    result = pb.process_batch(
+        "001", source, manifest_path,
+        campaigns_dir=tmp_path / "campaigns", skip_build=True,
+    )
+
+    copy = json.loads(Path(result["copy"]).read_text(encoding="utf-8"))
+    assert sorted(copy) == ["0", "1"]
+    # The two leads map to different segments, so distinct variant selection
+    # must have been possible per row.
+    research = json.loads(Path(result["research"]).read_text(encoding="utf-8"))
+    assert [r["aevora_segment"] for r in research] != []
+
+
+def test_one_lead_research_crashing_does_not_lose_the_batch(
+    tmp_path, monkeypatch
+) -> None:
+    """A renderer crash on lead 3 of 50 used to discard every completed fetch
+    in the batch. Research failures degrade to honest weak-signal copy instead."""
+    from lead_personalization.research import fallback_research_item
+
+    calls = {"n": 0}
+
+    def flaky_research(row_, li_scraped, renderer=None, render_fallback=True):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("renderer exploded")
+        return _stub_research(row_, li_scraped, renderer, render_fallback)
+
+    rows = [normalize_row(i, row("Custom home builder", f"lead{i}@example-biz.com"))
+            for i in range(3)]
+    source = tmp_path / "source.csv"
+    with source.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    manifest_path = tmp_path / "list-batch-manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {"prefix": "list",
+             "batches": [{"id": "001", "rows": [0, 1, 2], "status": "pending"}]}
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(pb, "research_lead", flaky_research)
+    monkeypatch.setattr(pb, "LINKEDIN_ENRICH", False)
+
+    result = pb.process_batch(
+        "001", source, manifest_path,
+        campaigns_dir=tmp_path / "campaigns", skip_build=True,
+    )
+
+    assert result["leads"] == 3
+    research = json.loads(Path(result["research"]).read_text(encoding="utf-8"))
+    assert len(research) == 3
+    assert research[1]["signal_strength"] == "weak"
+    assert "renderer exploded" in research[1]["research_notes"]
+    # The fallback item is a full research_lead shape.
+    expected = set(fallback_research_item(rows[1], "x"))
+    assert expected <= set(research[1])

@@ -19,28 +19,16 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from lead_personalization.naming import campaign_stem  # noqa: E402
+from lead_personalization.segments import is_generic_email as is_generic  # noqa: E402
 
 LEADS_DIR = ROOT / "leads"
 
 
 def count_named_path(stem: str, count: int, label: str, directory: Path = LEADS_DIR) -> Path:
     return directory / f"{stem}-{count}-{label}.csv"
-
-
-def campaign_stem(stem: str) -> str:
-    s = stem.lower().replace("-38k", "")
-    for suffix in ("-with-email", "-cleaned", "-verified", "-valid", "-normalized"):
-        if s.endswith(suffix):
-            s = s[: -len(suffix)]
-    parts = s.split("-")
-    alpha: list[str] = []
-    for part in parts:
-        if part.isdigit():
-            break
-        if part in {"cleaned", "with-email", "verified", "valid", "normalized"}:
-            break
-        alpha.append(part)
-    return "-".join(alpha) or "mixed"
 
 
 BUSINESS_RICH_COUNTRIES = {
@@ -141,15 +129,6 @@ def pick_primary_email(emails: list[str]) -> str:
         return ""
     personal = [e for e in emails if not is_generic(e)]
     return personal[0] if personal else emails[0]
-
-
-def is_generic(email: str) -> bool:
-    local = re.sub(r"[^a-z0-9]", "", email.split("@", 1)[0].lower())
-    generic = (
-        "info", "contact", "hello", "support", "sales", "admin", "office",
-        "team", "help", "mail", "enquiries", "inquiry", "noreply", "no-reply",
-    )
-    return any(local == p or local.startswith(p) for p in generic)
 
 
 def keyword_geo_mismatch(keyword: str, country: str) -> bool:

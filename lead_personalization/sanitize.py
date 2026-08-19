@@ -37,13 +37,7 @@ def sanitize_text(text: str) -> str:
         result = re.compile(re.escape(word), re.I).sub("", result)
     result = re.sub(r"\s+", " ", result)
     result = re.sub(r"\s+([,.;:])", r"\1", result)
-    result = re.sub(r"\s{2,}", " ", result)
     return result.strip(" ,;.-")
-
-
-def sanitize_signal(signal: str) -> str:
-    """research_signal is internal (never pasted into copy); pass through."""
-    return signal or ""
 
 
 def sanitize_email(subject: str, body: str) -> tuple[str, str]:

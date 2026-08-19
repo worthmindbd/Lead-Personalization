@@ -17,7 +17,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from lead_personalization.qa import qa, sequence_issues  # noqa: E402
 from personalization import artifacts  # noqa: E402
 
-DELAYS = [0, 3, 7]
+DELAYS = [0, 3, 7]  # sequence steps ship on day 0, +3, +7
+
+
+def delay_for(step_i: int) -> int:
+    """Send-day offset for step ``step_i``; extra steps continue the cadence."""
+    return DELAYS[step_i] if step_i < len(DELAYS) else DELAYS[-1] + (step_i - len(DELAYS) + 1)
 
 # Internal-only columns that should not appear in the enriched export.
 # `fit_score` is no longer produced, but normalized CSVs written before it was
@@ -44,18 +49,25 @@ def build_batch(
     enriched_dir.mkdir(parents=True, exist_ok=True)
     copy_dir.mkdir(parents=True, exist_ok=True)
 
-    with source.open(newline="", encoding="utf-8") as handle:
+    with source.open(newline="", encoding="utf-8-sig") as handle:
         all_rows = list(csv.DictReader(handle))
 
-    by_email = {}
-    for row in all_rows:
+    # Source rows are matched by row_index (the manifest's authoritative key —
+    # emails can be missing or duplicated across rows), falling back to the
+    # email match for artifacts written before row-keyed copy JSONs.
+    by_row_index: dict[str, dict] = {}
+    by_email: dict[str, dict] = {}
+    for pos, row in enumerate(all_rows):
+        by_row_index[str(pos)] = row
+        ri = str(row.get("row_index") or "").strip()
+        if ri:
+            by_row_index[ri] = row
         email = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
         if email:
             by_email[email] = row
 
     research = load_json(research_path)
     copy_data = load_json(copy_path)
-    copy_by_email = {k.lower(): v for k, v in copy_data.items()}
 
     out_rows = []
     json_out = []
@@ -64,11 +76,11 @@ def build_batch(
 
     for item in research:
         email = item["email"].lower()
-        src = by_email.get(email)
+        src = by_row_index.get(str(item.get("row_index", ""))) or by_email.get(email)
         if not src:
             raise SystemExit(f"Missing source row for {item['email']}")
 
-        seq = copy_by_email.get(email)
+        seq = copy_data.get(str(item.get("row_index", ""))) or copy_data.get(email)
         if not seq:
             raise SystemExit(f"Missing copy for {item['email']}")
 
@@ -123,7 +135,7 @@ def build_batch(
             if q["pass"]:
                 total_pass += 1
             lead_json["sequence"].append(
-                {"step": i + 1, "delay_days": DELAYS[i], "subject": subj, "body": body, "qa": q}
+                {"step": i + 1, "delay_days": delay_for(i), "subject": subj, "body": body, "qa": q}
             )
 
         lead_json["sequence_issues"] = sequence_issues(pairs)
@@ -135,7 +147,18 @@ def build_batch(
     out_json_path = artifacts.emails_json(prefix, batch_id, copy_dir)
     out_md = artifacts.review_md(prefix, batch_id, copy_dir)
 
-    fieldnames = [k for k in out_rows[0].keys() if k not in DROP_COLUMNS]
+    # Union of fieldnames across ALL rows: sequences of different lengths (or
+    # truncated fixes) would otherwise silently drop the later leads' extra
+    # email_N_* columns via extrasaction="ignore".
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    for r in out_rows:
+        for k in r:
+            if k not in seen and k not in DROP_COLUMNS:
+                seen.add(k)
+                fieldnames.append(k)
+    if not fieldnames:
+        fieldnames = ["primary_email"]
     with out_csv.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
