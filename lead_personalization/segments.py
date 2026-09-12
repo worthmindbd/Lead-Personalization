@@ -118,6 +118,7 @@ _add(
     "Property management company", "Property investment company",
     "Apartment rental agency", "Apartment complex", "Condominium complex",
     "Vacation home rental agency", "Holiday apartment rental", "Office space rental agency",
+    "Apartment building", "Housing development", "Real estate appraiser",
 )
 _add(
     "professional_services",
@@ -167,6 +168,7 @@ _add(
     "Millwork shop", "Dock builder", "Building consultant", "Architect",
     "Architecture firm", "Home theater store", "Upholstery shop", "Wallpaper store",
     "Furniture maker", "Furniture manufacturer",
+    "Building firm", "Modular home builder", "Interior fitting contractor",
 )
 _add(
     "luxury_retail",
