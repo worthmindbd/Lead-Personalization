@@ -438,3 +438,80 @@ def test_the_lock_is_released_after_a_run(tmp_path, monkeypatch):
         pass
     with rp.pipeline_run_lock():
         pass
+
+
+# ---------------------------------------------------------------------------
+# Upload guards — content identity, not row-count identity
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def upload_env(tmp_path, monkeypatch):
+    """A list with enriched + verified CSVs on disk and Drive calls captured."""
+    monkeypatch.setattr(rp, "ROOT", tmp_path)
+    workdir = tmp_path / "leads" / "pipeline" / "july-1"
+    enriched = emails_csv(workdir / "july-1-enriched.csv", ["a@x.com"])
+    verified = emails_csv(workdir / "july-1-verified.csv", ["a@x.com"])
+    entry = rp.new_entry("July 1")
+    entry["slug"] = "july-1"
+    entry["enriched_csv"] = str(enriched.relative_to(tmp_path))
+    entry["verified_csv"] = str(verified.relative_to(tmp_path))
+    uploads: list[Path] = []
+    monkeypatch.setattr(
+        rp, "drive_upload", lambda remote, path, folder, title: uploads.append(path)
+    )
+    args = Namespace(local_only=False, remote="gdrive")
+    return entry, workdir, uploads, args
+
+
+def test_an_unchanged_enriched_file_skips_the_upload(upload_env):
+    entry, workdir, uploads, args = upload_env
+
+    rp.stage_upload_personalized("July 1", entry, args)
+    rp.stage_upload_personalized("July 1", entry, args)
+
+    assert len(uploads) == 1
+
+
+def test_rewritten_content_with_the_same_row_count_uploads_again(upload_env):
+    """The regen_subjects regression: subjects rewritten in place change the
+    file's content but not its row count, and the count-only guard reported
+    "unchanged (skip)" forever after — Drive kept the stale subjects."""
+    entry, workdir, uploads, args = upload_env
+    rp.stage_upload_personalized("July 1", entry, args)
+    assert len(uploads) == 1
+
+    write_csv(workdir / "july-1-enriched.csv",
+              [{"primary_email": "a@x.com", "company": "Regenerated Co"}])
+    rp.stage_upload_personalized("July 1", entry, args)
+
+    assert len(uploads) == 2
+    assert entry["uploads"]["enriched_sha256"] == rp.file_sha256(
+        workdir / "july-1-enriched.csv"
+    )
+
+
+def test_a_legacy_entry_without_a_hash_uploads_once_and_records_it(upload_env):
+    """State written before hashes existed carries a row count only. The first
+    run under the new guard re-uploads (harmless, same content) and from then
+    on skips like normal."""
+    entry, workdir, uploads, args = upload_env
+    entry["uploads"]["enriched_rows"] = 1
+
+    rp.stage_upload_personalized("July 1", entry, args)
+    assert len(uploads) == 1
+
+    rp.stage_upload_personalized("July 1", entry, args)
+    assert len(uploads) == 1
+
+
+def test_the_verified_upload_guard_checks_content_too(upload_env):
+    entry, workdir, uploads, args = upload_env
+    rp.stage_upload_verified("July 1", entry, args)
+    rp.stage_upload_verified("July 1", entry, args)
+    assert len(uploads) == 1
+
+    write_csv(workdir / "july-1-verified.csv",
+              [{"primary_email": "a@x.com", "company": "Different Co"}])
+    rp.stage_upload_verified("July 1", entry, args)
+    assert len(uploads) == 2

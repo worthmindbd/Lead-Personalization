@@ -45,9 +45,13 @@ def merge_enriched(
                 fieldnames = list(reader.fieldnames or [])
             for row in reader:
                 email = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
-                if email in seen_emails:
-                    continue
-                seen_emails.add(email)
+                # A row with no address has nothing to dedupe on: every one of
+                # them got copy (the batch never drops a row), and the "" key
+                # used to collapse all of them into whichever came first.
+                if email:
+                    if email in seen_emails:
+                        continue
+                    seen_emails.add(email)
                 all_rows.append(row)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

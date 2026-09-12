@@ -83,6 +83,22 @@ def merged_output_path(source: Path, prefix: str | None = None) -> Path:
     return ROOT / "leads" / f"{campaign}-enriched.csv"
 
 
+def can_resume_from_disk(batch: dict, research_path: Path, copy_path: Path) -> bool:
+    """True when a crashed ``copy_done`` batch left both JSONs on disk.
+
+    ``copy_done`` means the expensive half — LinkedIn, website research, copy
+    generation — finished and its artifacts were written; only the export is
+    missing. Re-researching would re-fetch every website for copy that cannot
+    change (the engine is deterministic), and ``--all-pending`` used to skip
+    the batch entirely instead, stranding it in a dead state.
+    """
+    return (
+        batch.get("status") == "copy_done"
+        and research_path.is_file()
+        and copy_path.is_file()
+    )
+
+
 def process_batch(
     batch_id: str,
     source: Path,
@@ -109,68 +125,75 @@ def process_batch(
     # Every lead in the list gets copy — no fit-based exclusion.
     batch_rows = [all_rows[i] for i in batch["rows"]]
 
-    # Pre-scrape LinkedIn posts for every lead that has a LinkedIn URL (one
-    # batched Apify call, cached per handle so re-runs never re-pay).
-    li_scraped: dict = {}
-    if LINKEDIN_ENRICH:
-        li_urls = [
-            (r.get("Linkedin_URL") or "").strip()
-            for r in batch_rows
-            if (r.get("Linkedin_URL") or "").strip()
-        ]
-        if li_urls:
-            try:
-                li_scraped = linkedin_apify.scrape_profiles(
-                    li_urls, max_posts=LINKEDIN_MAX_POSTS
-                )
-                found = sum(1 for v in li_scraped.values() if v)
-                print(
-                    f"Batch {batch_id}: LinkedIn URLs {len(li_urls)}, "
-                    f"profiles with posts {found}"
-                )
-            except SystemExit as exc:
-                print(f"Batch {batch_id}: LinkedIn enrichment skipped ({exc})")
-                li_scraped = {}
-
-    research_out = []
-    copy_out = {}
-    offer_pack = load_offer_pack(OFFER_PACK_NAME)
-    # Built here rather than at import: --no-render flips RENDER_FALLBACK after
-    # this module is already loaded.
-    renderer = NodePlaywrightRenderer(RENDER_SCRIPT, ROOT, RENDER_TIMEOUT_S)
-
-    for row_index, row in zip(batch["rows"], batch_rows):
-        try:
-            item = research_lead(
-                row, li_scraped, renderer=renderer, render_fallback=RENDER_FALLBACK
-            )
-        except Exception as exc:  # noqa: BLE001 — one lead must not lose the batch
-            item = fallback_research_item(row, f"{type(exc).__name__}: {exc}")
-            print(
-                f"Batch {batch_id}: research failed for row "
-                f"{row_index} ({exc}); using weak-signal copy",
-                file=sys.stderr,
-            )
-        # The manifest index is the authoritative row key: the CSV's
-        # row_index column can be absent, and research_lead would default
-        # every such lead to 0.
-        item["row_index"] = row_index
-        seq, variant = generate_sequence(row, item, offer_pack)
-        seq = fix_sequence(seq, row, item, offer_pack)
-        item["copy_variant"] = variant
-        research_out.append(item)
-        # Keyed by row_index, not email: two rows can share an address (or have
-        # none), and keying by email silently gave every duplicate the wrong
-        # lead's sequence.
-        copy_out[str(row_index)] = [[s, b] for s, b in seq]
-
     research_path = artifacts.research_json(prefix, batch_id, campaigns_dir)
     copy_path = artifacts.copy_json(prefix, batch_id, campaigns_dir)
-    campaigns_dir.mkdir(parents=True, exist_ok=True)
-    research_path.write_text(json.dumps(research_out, indent=2), encoding="utf-8")
-    copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
 
-    update_batch_status(manifest_path, batch_id, "copy_done")
+    if can_resume_from_disk(batch, research_path, copy_path):
+        print(
+            f"Batch {batch_id}: resuming copy_done — rebuilding export from "
+            f"existing {research_path.name} / {copy_path.name}"
+        )
+    else:
+        # Pre-scrape LinkedIn posts for every lead that has a LinkedIn URL (one
+        # batched Apify call, cached per handle so re-runs never re-pay).
+        li_scraped: dict = {}
+        if LINKEDIN_ENRICH:
+            li_urls = [
+                (r.get("Linkedin_URL") or "").strip()
+                for r in batch_rows
+                if (r.get("Linkedin_URL") or "").strip()
+            ]
+            if li_urls:
+                try:
+                    li_scraped = linkedin_apify.scrape_profiles(
+                        li_urls, max_posts=LINKEDIN_MAX_POSTS
+                    )
+                    found = sum(1 for v in li_scraped.values() if v)
+                    print(
+                        f"Batch {batch_id}: LinkedIn URLs {len(li_urls)}, "
+                        f"profiles with posts {found}"
+                    )
+                except SystemExit as exc:
+                    print(f"Batch {batch_id}: LinkedIn enrichment skipped ({exc})")
+                    li_scraped = {}
+
+        research_out = []
+        copy_out = {}
+        offer_pack = load_offer_pack(OFFER_PACK_NAME)
+        # Built here rather than at import: --no-render flips RENDER_FALLBACK after
+        # this module is already loaded.
+        renderer = NodePlaywrightRenderer(RENDER_SCRIPT, ROOT, RENDER_TIMEOUT_S)
+
+        for row_index, row in zip(batch["rows"], batch_rows):
+            try:
+                item = research_lead(
+                    row, li_scraped, renderer=renderer, render_fallback=RENDER_FALLBACK
+                )
+            except Exception as exc:  # noqa: BLE001 — one lead must not lose the batch
+                item = fallback_research_item(row, f"{type(exc).__name__}: {exc}")
+                print(
+                    f"Batch {batch_id}: research failed for row "
+                    f"{row_index} ({exc}); using weak-signal copy",
+                    file=sys.stderr,
+                )
+            # The manifest index is the authoritative row key: the CSV's
+            # row_index column can be absent, and research_lead would default
+            # every such lead to 0.
+            item["row_index"] = row_index
+            seq, variant = generate_sequence(row, item, offer_pack)
+            seq = fix_sequence(seq, row, item, offer_pack)
+            item["copy_variant"] = variant
+            research_out.append(item)
+            # Keyed by row_index, not email: two rows can share an address (or have
+            # none), and keying by email silently gave every duplicate the wrong
+            # lead's sequence.
+            copy_out[str(row_index)] = [[s, b] for s, b in seq]
+
+        campaigns_dir.mkdir(parents=True, exist_ok=True)
+        research_path.write_text(json.dumps(research_out, indent=2), encoding="utf-8")
+        copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
+
+        update_batch_status(manifest_path, batch_id, "copy_done")
 
     result = {
         "batch_id": batch_id,

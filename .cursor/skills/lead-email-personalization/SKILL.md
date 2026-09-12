@@ -160,7 +160,10 @@ Follow [frameworks.md](frameworks.md). Segment playbook: [segments.md](segments.
 Update `status` in `campaigns/mix-leads-batch-manifest.json`:
 `pending` → `copy_done` → `exported`
 
-Re-run `run_batches.py --all-pending` to continue interrupted runs.
+Re-run `run_batches.py --all-pending` to continue interrupted runs. It picks up
+both unfinished states: a `copy_done` batch (crashed after research/copy were
+written, before the export) rebuilds its export from the JSON on disk instead
+of re-paying for research.
 
 ## Additional resources
 

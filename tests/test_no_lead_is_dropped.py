@@ -255,6 +255,30 @@ def test_the_per_domain_cap_is_still_enforced(tmp_path) -> None:
     assert len(out) == 2
 
 
+def test_a_plain_email_column_still_cleans(tmp_path) -> None:
+    """Not every raw export uses the GMB scraper's Email_From_WEBSITE header.
+    A list carrying a plain Email column used to KeyError and fail its whole
+    Drive list — again on every run — instead of cleaning."""
+    source = _raw_export(
+        tmp_path,
+        [{"Name": "Lakeview Custom Homes",
+          "Email": "owner@lakeview.com;info@lakeview.com",
+          "Website": "https://lakeview.com",
+          "First_category": "Custom home builder",
+          "City": "Austin"}],
+    )
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert list(out["Email"]) == ["owner@lakeview.com"]
+
+
+def test_a_source_with_no_email_column_fails_with_guidance(tmp_path) -> None:
+    """The failure must name what was expected and what the file has — a bare
+    KeyError in a daily run's state entry is not actionable."""
+    source = _raw_export(tmp_path, [{"Name": "Something", "Website": "https://x.com"}])
+    with pytest.raises(SystemExit, match="No email column"):
+        clean_gmb_leads(source, tmp_path / "out.csv")
+
+
 def test_two_rows_sharing_an_email_each_get_their_own_sequence(
     tmp_path, monkeypatch
 ) -> None:

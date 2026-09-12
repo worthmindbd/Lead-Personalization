@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import csv
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -140,6 +141,21 @@ def csv_row_count(path: Path) -> int:
         return max(0, sum(1 for row in csv.reader(f) if row) - 1)
 
 
+def file_sha256(path: Path) -> str:
+    """Content hash for the upload guards.
+
+    Row count alone is not identity: ``regen_subjects`` rewrites a cumulative
+    enriched CSV in place without changing how many rows it has, and the
+    count-only guard kept reporting "unchanged (skip)" — so regenerated
+    subjects never reached Drive.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # State
 # ---------------------------------------------------------------------------
@@ -191,7 +207,11 @@ def new_entry(title: str, mtime: str = "") -> dict:
         "cleaned_csv": None,
         "verified_csv": None,
         "enriched_csv": None,
-        "uploads": {"cleaned": False, "verified_rows": -1, "enriched_rows": -1},
+        "uploads": {
+            "cleaned": False,
+            "verified_rows": -1, "verified_sha256": None,
+            "enriched_rows": -1, "enriched_sha256": None,
+        },
         "verify_complete": False,
         "pending_verification": None,
         "pending_delta": None,
@@ -553,11 +573,16 @@ def stage_upload_verified(title: str, entry: dict, args) -> None:
         stage_line("upload verified", "[local-only] skipped")
         return
     rows = csv_row_count(verified)
-    if rows == entry["uploads"].get("verified_rows"):
+    digest = file_sha256(verified)
+    if (
+        rows == entry["uploads"].get("verified_rows")
+        and digest == entry["uploads"].get("verified_sha256")
+    ):
         stage_line("upload verified", f"unchanged ({rows} rows, skip)")
         return
     drive_upload(args.remote, verified, DRIVE_VERIFIED, title)
     entry["uploads"]["verified_rows"] = rows
+    entry["uploads"]["verified_sha256"] = digest
     stage_line("upload verified", f"{rows} rows -> '{DRIVE_VERIFIED}/{title}/'")
 
 
@@ -945,7 +970,11 @@ def stage_upload_personalized(title: str, entry: dict, args) -> None:
         stage_line("upload personalized", "[local-only] skipped")
         return
     rows = csv_row_count(cumulative)
-    if rows == entry["uploads"].get("enriched_rows"):
+    digest = file_sha256(cumulative)
+    if (
+        rows == entry["uploads"].get("enriched_rows")
+        and digest == entry["uploads"].get("enriched_sha256")
+    ):
         stage_line("upload personalized", f"unchanged ({rows} rows, skip)")
         return
     drive_upload(args.remote, cumulative, DRIVE_PERSONALIZED, title)
@@ -954,6 +983,7 @@ def stage_upload_personalized(title: str, entry: dict, args) -> None:
         if review.is_file():
             drive_upload(args.remote, review, DRIVE_PERSONALIZED, title)
     entry["uploads"]["enriched_rows"] = rows
+    entry["uploads"]["enriched_sha256"] = digest
     stage_line("upload personalized", f"{rows} rows -> '{DRIVE_PERSONALIZED}/{title}/'")
 
 
@@ -1051,14 +1081,23 @@ def reconcile_list_with_drive(title: str, entry: dict, args, state: dict) -> Non
     enriched_n = found.get("enriched")
 
     # Mark stages already present in Drive as uploaded so we never push a
-    # duplicate (the upload stages also guard on these row counts / flag).
+    # duplicate (the upload stages also guard on these row counts / hashes).
+    # The hash is of the ADOPTED LOCAL file: when it equals what Drive had,
+    # the upload stages skip; when the local file is ahead, its row count
+    # differs from Drive's and the upload happens anyway.
     if cleaned_n is not None:
         entry["uploads"]["cleaned"] = True
     if verified_n is not None:
         entry["uploads"]["verified_rows"] = verified_n
+        verified_local = workdir / f"{slug}-verified.csv"
+        if verified_local.is_file():
+            entry["uploads"]["verified_sha256"] = file_sha256(verified_local)
     if enriched_n is not None:
         entry["uploads"]["enriched_rows"] = enriched_n
         entry["personalized_emails"] = enriched_n
+        enriched_local = workdir / f"{slug}-enriched.csv"
+        if enriched_local.is_file():
+            entry["uploads"]["enriched_sha256"] = file_sha256(enriched_local)
 
     # pending_verification() consults the Reoon cache. If that cache was lost,
     # every already-passed email looks unchecked and would burn quota again, so

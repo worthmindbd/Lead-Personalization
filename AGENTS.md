@@ -111,7 +111,7 @@ Evidence priority for the opener: `linkedin_posts` → `site_video` → `social_
 
 ## Checkpoint / resume
 
-Batch manifest (`campaigns/*-batch-manifest.json`) tracks status: `pending` → `copy_done` → `exported`. Re-run `run_batches.py --all-pending` to continue interrupted runs.
+Batch manifest (`campaigns/*-batch-manifest.json`) tracks status: `pending` → `copy_done` → `exported`. Re-run `run_batches.py --all-pending` to continue interrupted runs; it picks up both `pending` and `copy_done` batches, and a `copy_done` batch rebuilds its export from the research/copy JSON already on disk instead of re-paying for research.
 
 ## Key files
 

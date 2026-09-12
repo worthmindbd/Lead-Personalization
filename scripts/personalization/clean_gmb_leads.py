@@ -93,6 +93,11 @@ FREE_MAIL_DOMAINS = {
     "proton.me", "mail.com", "gmx.com", "zoho.com",
 }
 
+# Raw exports name their address column differently by scraper vintage:
+# Email_From_WEBSITE is the GMB-export convention, the rest are what a manual
+# or third-party list carries. First present wins.
+EMAIL_SOURCE_COLUMNS = ("Email_From_WEBSITE", "Email", "email", "Email Address")
+
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 PLACEHOLDER_DOMAINS = {
     "example.com", "test.com", "mysite.com", "domain.com", "email.com",
@@ -139,6 +144,23 @@ def keyword_geo_mismatch(keyword: str, country: str) -> bool:
     return bool(re.search(r",\s*[A-Z]{2}\b", keyword))
 
 
+def email_source_column(df: pd.DataFrame) -> str:
+    """The address column this export uses, or an actionable failure.
+
+    A raw list without ``Email_From_WEBSITE`` used to die with a bare
+    ``KeyError`` and fail the same Drive list again on every run; the message
+    now says which columns were expected and what the file actually has.
+    """
+    for col in EMAIL_SOURCE_COLUMNS:
+        if col in df.columns:
+            return col
+    raise SystemExit(
+        "No email column in source. Expected one of: "
+        f"{', '.join(EMAIL_SOURCE_COLUMNS)}; found: "
+        f"{', '.join(str(c) for c in df.columns)}"
+    )
+
+
 def clean_gmb_leads(
     source: Path,
     output: Path,
@@ -152,7 +174,7 @@ def clean_gmb_leads(
     stats: dict[str, int] = {"input_rows": len(df)}
 
     df["Country_inferred"] = df.apply(infer_country, axis=1)
-    df["Email"] = df["Email_From_WEBSITE"].apply(
+    df["Email"] = df[email_source_column(df)].apply(
         lambda v: pick_primary_email(extract_emails(v))
     )
 

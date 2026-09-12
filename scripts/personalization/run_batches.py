@@ -27,6 +27,13 @@ from personalization.process_batch import merged_output_path, process_batch  # n
 
 MANIFEST = artifacts.manifest_path()
 
+# What "--all-pending" means: batches never started, plus batches that crashed
+# after research/copy were written but before the export ("copy_done"). The
+# second used to be a dead state — the documented resume command skipped it,
+# its leads went missing from the merge, and a later delta paid for the same
+# research twice.
+RESUMABLE_STATUSES = ("pending", "copy_done")
+
 
 def _source_from_manifest() -> Path:
     """Read the source CSV recorded in the manifest; fall back to the default."""
@@ -101,10 +108,21 @@ def _warm_linkedin_cache(targets: list[str]) -> None:
         return
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     target_set = set(targets)
+    prefix = artifacts.prefix_for(MANIFEST)
+    campaigns_dir = ROOT / "campaigns"
     row_ids: list[int] = []
     for batch in manifest["batches"]:
-        if batch["id"] in target_set:
-            row_ids.extend(batch["rows"])
+        if batch["id"] not in target_set:
+            continue
+        # A batch that will rebuild from disk does no research, so its URLs
+        # must not cost a paid scrape here.
+        if pb.can_resume_from_disk(
+            batch,
+            artifacts.research_json(prefix, batch["id"], campaigns_dir),
+            artifacts.copy_json(prefix, batch["id"], campaigns_dir),
+        ):
+            continue
+        row_ids.extend(batch["rows"])
     if not row_ids:
         return
     with SOURCE.open(newline="", encoding="utf-8") as handle:
@@ -154,7 +172,10 @@ def run_batches(
     auto_merge = workers <= 1
 
     if all_pending:
-        targets = [b["id"] for b in manifest["batches"] if b.get("status") == "pending"]
+        targets = [
+            b["id"] for b in manifest["batches"]
+            if b.get("status") in RESUMABLE_STATUSES
+        ]
     elif batch_ids:
         targets = batch_ids
     else:

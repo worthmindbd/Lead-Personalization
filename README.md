@@ -135,7 +135,7 @@ After all lists are processed it regenerates the report and imports it to Drive 
 
 ### State, working files, Drive layout
 
-- **State:** `.pipeline/state.json` — per-list stage, Drive-title ↔ local-slug mapping, upload markers, in-flight delta. Every run is resumable and idempotent.
+- **State:** `.pipeline/state.json` — per-list stage, Drive-title ↔ local-slug mapping, upload markers (row count **and content hash** of what was last pushed, so an in-place rewrite like `regen_subjects.py` re-uploads instead of being skipped as "unchanged"), in-flight delta. Every run is resumable and idempotent.
 - **Contacted index:** `.pipeline/contacted.json` — every address that has been personalized, mapped to the list that got there first. Drive lists overlap, so each list's delta is checked against this index and an address already sequenced on another list is skipped (the run prints how many). Rebuild or inspect it with `run_pipeline.py --backfill-contacted`; the first run after an upgrade seeds it automatically from the existing enriched CSVs.
 - **Rejected tombstones:** `.reoon/rejected.json` — addresses known to have been checked but with no cached result, so a reset cannot re-spend credits on them. Reoon results (rejections included) live in the cache; this file only covers runs whose cache was later lost, where a reseed could restore the passing addresses but not the rejects. Entries are marked `inferred_rejected` so an inference is never confused with a real answer. Recover them with `run_pipeline.py --backfill-rejected` (previews by default; add `--apply`), and spend credits on them anyway with `verify_emails_reoon.py --recheck-rejected`.
 - **Working files:** `leads/pipeline/<slug>/` (slug = sanitized title, e.g. `July 25,2026` → `july-25-2026`) holds `raw.*`, `<slug>-cleaned.csv`, `<slug>-verified.csv`, `<slug>-enriched.csv` (cumulative), and archived batch artifacts.
@@ -197,6 +197,12 @@ side by side by giving each its own: their research JSON, copy JSON, reviews,
 enriched batches, and merged CSVs stay disjoint, and each merge globs only its
 own batches. Omit `--manifest` and everything falls back to the shared
 historical `mix-leads-*` names.
+
+Batch status advances `pending → copy_done → exported`. Re-running with
+`--all-pending` resumes an interrupted run through both unfinished states: a
+`copy_done` batch (crashed after research/copy were written but before the
+export) rebuilds from the JSON already on disk instead of re-paying for
+research.
 
 For agent-driven runs, the skill handles research and copy; scripts handle normalization, batching, QA, and export.
 

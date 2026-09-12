@@ -95,6 +95,25 @@ def test_a_missing_manifest_is_not_fatal(two_batches, prefix, tmp_path):
     assert merge_enriched(two_batches, out, tmp_path / "nope.json", prefix=prefix) == 3
 
 
+def test_email_less_rows_are_kept_not_deduped_against_each_other(tmp_path, prefix):
+    """Rows with no address have nothing to dedupe on. Every row in a batch
+    gets copy (the never-drop rule), so the enriched CSVs carry them — and the
+    empty-string key used to collapse all of them into whichever came first,
+    silently discarding leads on the manual merge path."""
+    enriched = tmp_path / "enriched"
+    batch_csv(enriched, "001", [{"primary_email": "", "company": "No mail A"},
+                                {"primary_email": "a@x.com", "company": "A"},
+                                {"primary_email": "", "company": "No mail B"}], prefix)
+    batch_csv(enriched, "002", [{"primary_email": "", "company": "No mail C"}], prefix)
+    out = tmp_path / "merged.csv"
+
+    assert merge_enriched(enriched, out, tmp_path / "absent.json", prefix=prefix) == 4
+
+    with out.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert [r["company"] for r in rows] == ["No mail A", "A", "No mail B", "No mail C"]
+
+
 # ---------------------------------------------------------------------------
 # The manifest write
 # ---------------------------------------------------------------------------

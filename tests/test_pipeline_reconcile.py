@@ -223,6 +223,26 @@ def test_reconcile_reseeds_the_cache_so_quota_is_not_respent(reconcile, cache_fi
     assert len(cache) == 60, "verified emails should be recorded as already checked"
 
 
+def test_reconcile_records_the_content_hash_of_what_it_adopted(reconcile):
+    """The upload stages skip on (row count, hash). Recording the adopted
+    file's hash is what keeps that skip correct in both directions: Drive
+    already has this exact content, so no re-push — but a later in-place
+    rewrite (regen_subjects) changes the hash and does upload."""
+    entry = reconcile({"verified": 7})
+
+    adopted = rp.WORK_ROOT / "july-17-2026" / "july-17-2026-verified.csv"
+    assert entry["uploads"]["verified_rows"] == 7
+    assert entry["uploads"]["verified_sha256"] == rp.file_sha256(adopted)
+
+
+def test_reconcile_records_the_enriched_hash_too(reconcile):
+    entry = reconcile({"verified": 5, "enriched": 5})
+
+    adopted = rp.WORK_ROOT / "july-17-2026" / "july-17-2026-enriched.csv"
+    assert entry["uploads"]["enriched_rows"] == 5
+    assert entry["uploads"]["enriched_sha256"] == rp.file_sha256(adopted)
+
+
 # --- ordering: unfinished lists before new uploads ------------------------
 
 

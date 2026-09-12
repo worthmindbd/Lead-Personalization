@@ -49,6 +49,37 @@ from run_pipeline import merge_into_cumulative  # noqa: E402
 STATE = ROOT / ".pipeline" / "state.json"
 
 
+def index_source_rows(all_rows: list[dict]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Row lookups for a normalized CSV, keyed the way ``build_enriched`` keys them.
+
+    ``row_index`` is authoritative; the email index is only the fallback for
+    artifacts written before row-keyed research JSON. Matching by email alone
+    (what this script used to do) gives every row sharing an address the FIRST
+    matching row's city/category/name — and two rows sharing an address is a
+    scenario the main path explicitly supports and tests.
+    """
+    by_row_index: dict[str, dict] = {}
+    by_email: dict[str, dict] = {}
+    for pos, row in enumerate(all_rows):
+        by_row_index[str(pos)] = row
+        ri = str(row.get("row_index") or "").strip()
+        if ri:
+            by_row_index[ri] = row
+        email = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
+        if email:
+            by_email[email] = row
+    return by_row_index, by_email
+
+
+def source_row_for(
+    item: dict, by_row_index: dict[str, dict], by_email: dict[str, dict]
+) -> dict | None:
+    """The normalized row a research item was generated from (None if absent)."""
+    return by_row_index.get(str(item.get("row_index", ""))) or by_email.get(
+        (item.get("email") or "").lower()
+    )
+
+
 def _resolve_list(query: str) -> tuple[str, str, Path]:
     """Return (title, slug, workdir) for a list matched by title or slug.
 
@@ -113,13 +144,12 @@ def main() -> None:
             research_items = json.loads(rp.read_text(encoding="utf-8"))
             with source.open(newline="", encoding="utf-8-sig") as fh:
                 all_rows = list(csv.DictReader(fh))
+            by_row_index, by_email = index_source_rows(all_rows)
 
             copy_out: dict[str, list[list[str]]] = {}
             for item in research_items:
                 em = item["email"]
-                src = next((r for r in all_rows
-                            if (r.get("primary_email") or r.get("Email") or "").split("|")[0].strip().lower() == em.lower()),
-                           None)
+                src = source_row_for(item, by_row_index, by_email)
                 if src is None:
                     raise SystemExit(f"missing normalized row for {em}")
                 seq, _variant = generate_sequence(src, item, pack)
