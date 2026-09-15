@@ -244,6 +244,125 @@ _add(
     "Airline",
 )
 
+# ---------------------------------------------------------------------------
+# 2026-09-15 survey pass. Every category below was unmapped in the Aug 13
+# list and has NEVER been personalized on any Drive list, so mapping it
+# cannot split an audience across two angles. Categories that already
+# shipped under low_fit are deliberately absent: their copy is live in ESPs
+# and re-angling them would make per-segment reply rates incomparable.
+# tests/test_shipped_segments_frozen.py enforces this invariant.
+# ---------------------------------------------------------------------------
+_add(
+    "auto_services",
+   "Auto glass shop", "Battery store", "Dry cleaner", "EV charging station",
+   "Electric vehicle charger", "Fleet washing service", "Glass repair service",
+   "Jump start service", "Key duplication service", "Locksmith", "Roadside assistance",
+   "Safe opening service", "Scooter dealer", "Truck wash", "Window cleaning service",
+   "Windshield repair shop",
+)
+
+_add(
+    "creative_marketing",
+   "Exhibition planner", "Invitation printing service", "Magician",
+   "Multimedia and electronic book publisher", "Photography class",
+)
+
+_add(
+    "home_design",
+   "Architects association", "Building designer", "Carpet store", "Cement supplier",
+   "Civil engineering company", "Countertop store", "Curtain supplier and maker",
+   "Deck builder", "Drafting service", "Gutter service", "Home inspector",
+   "Interior plant service", "Landscape architect", "Landscape lighting designer",
+   "Lumber store", "Siding contractor", "Steel construction company", "Tile store",
+   "Turf supplier", "Wallpaper installer", "Wholesale plant nursery",
+   "Window installation service", "Woodworking supply store",
+)
+
+_add(
+    "hospitality_events",
+   "Amphitheater", "Auditorium", "Banquet hall", "Baseball", "Basketball court",
+   "Beach volleyball club", "Campground", "Civic center", "Concert hall", "Conference center",
+   "Dinner theater", "Exhibition and trade center", "Extended stay hotel", "Fairground",
+   "Festival", "Go-karting venue", "Health resort", "Holiday home", "Homestay", "Inn",
+   "Irish pub", "Live music bar", "Lounge bar", "Mobile caterer", "Night club", "Orchestra",
+   "Piano bar", "Ranch", "Retreat center", "Roller skating rink", "Self defense school",
+   "Swimming school", "Velodrome", "Vineyard", "Wedding chapel", "Wrestling school",
+   "Yoga retreat center",
+)
+
+_add(
+    "luxury_retail",
+   "Animal feed store", "Asian grocery store", "Bagel shop", "Beauty supply store",
+   "Bicycle store", "Cake shop", "Cannabis club", "Cannabis store", "Car stereo store",
+   "Cheese shop", "Chocolate artisan", "Chocolate shop", "Clothing wholesaler",
+   "Coffee roastery", "Coin dealer", "Comic book store", "Costume jewelry shop", "Deli",
+   "Dessert shop", "Diner", "Dressmaker", "Exercise equipment store", "Farmers' market",
+   "Fashion accessories store", "Footwear wholesaler", "Formal wear store",
+   "Fresh food market", "General store", "Goldsmith", "Gourmet grocery store",
+   "Grocery delivery service", "Gun shop", "Handbags shop", "Hat shop", "Health food store",
+   "Herbal medicine store", "Home audio store", "Ice cream shop", "Indian grocery store",
+   "Italian grocery store", "Japanese grocery store", "Jewelry manufacturer", "Juice shop",
+   "Luggage store", "Market", "Meat products store", "Metaphysical supply store",
+   "Natural goods store", "Organic food store", "Orthopedic shoe store", "Pastry shop",
+   "Pet supply store", "Produce market", "Shoe store", "Silversmith", "Tea and coffee shop",
+   "Tea house", "Tea store", "Thrift store", "Tuxedo shop", "Uniform store",
+   "Vitamin & supplements store", "Western apparel store",
+)
+
+_add(
+    "marine_auto_lifestyle",
+   "Aircraft manufacturer", "Auto dent removal service", "Bus charter", "Bus company",
+   "Canoe & kayak tour agency", "Chauffeur service", "Diving center", "Fishing charter",
+   "Helicopter charter", "Horse breeder", "Hot tub repair service", "International airport",
+   "Motoring club", "Parking garage", "Riding school", "Sailing school", "Taxi service",
+   "Valet parking service", "Water sports equipment rental service", "Yacht charter",
+)
+
+_add(
+    "medical_aesthetic",
+   "Alternative medicine practitioner", "Cardiovascular and thoracic surgeon",
+   "Dental laboratory", "Dental supply store", "Emergency dental service", "Endodontist",
+   "Esthetics service", "Family practice physician", "Foot care", "General hospital",
+   "General practitioner", "Hand surgeon", "Hospital department", "Internist",
+   "Medical diagnostic imaging center", "Nurse practitioner", "Occupational health service",
+   "Optometrist", "Oral and maxillofacial surgeon", "Oral surgeon", "Orthodontist",
+   "Pediatric dentist", "Periodontist", "Podiatrist", "Prosthodontist", "Travel clinic",
+   "Urgent care center", "Wig shop", "Women's health clinic",
+)
+
+_add(
+    "professional_services",
+   "Accounting school", "After school program", "Auditor", "Aviation training institute",
+   "Business administration service", "Car finance and loan company", "Catholic church",
+   "Certification agency", "Charter school", "Chinese language school", "Community college",
+   "Consumer advice center", "Cooperative bank", "Council", "Court executive officer",
+   "Credit union", "Customs consultant", "Dating service", "Design institute",
+   "Employment consultant", "Engineering school", "Episcopal church", "Evangelical church",
+   "Fraternal organization", "Gay & lesbian organization", "High school", "Human resources",
+   "Hypnotherapy service", "Insolvency service", "Institute of technology",
+   "Insurance company", "International trade consultant", "Mapping service",
+   "Marriage or relationship counselor", "Massage school", "Meditation center",
+   "Nursing school", "Photography school", "Place of worship", "Pregnancy care center",
+   "Presbyterian church", "Private college", "Private educational institution",
+   "Private university", "Public health department", "Public university",
+   "Religious destination", "Religious organization", "School administration office",
+   "School district office", "Seminary", "Stock broker", "Student career counseling office",
+   "Training provider", "University library", "Visa and passport office", "Vocational school",
+)
+
+_add(
+    "real_estate",
+   "Apartment", "Appraiser", "Auction house", "Gated community", "House", "Leasing service",
+   "Property maintenance", "Retail space rental agency", "Retirement community", "Surveyor",
+)
+
+_add(
+    "software_tech",
+   "Computer hardware manufacturer", "Data recovery service", "Electronics company",
+   "Internet cafe", "Laboratory equipment supplier", "Medical technology manufacturer",
+   "Phone repair service",
+)
+
 # The one generic-inbox definition for the whole repo: both the primary-email
 # pick (clean stage) and the tier resolution (normalize) consult it, so a
 # divergence here made the two stages disagree about the same address.
