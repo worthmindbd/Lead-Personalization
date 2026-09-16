@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import csv
-import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization.manifest_lock import manifest_lock  # noqa: E402
 
@@ -35,14 +36,20 @@ def merge_enriched(
         raise SystemExit(f"No enriched batch files matching {pattern} in {enriched_dir}")
 
     all_rows = []
-    fieldnames = None
+    fieldnames: list[str] = []
+    seen_fields: set[str] = set()
     seen_emails = set()
 
     for path in files:
         with path.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
-            if fieldnames is None:
-                fieldnames = list(reader.fieldnames or [])
+            # Union across files like build_enriched does: batches can carry
+            # different email_N_* columns, and first-file-only fieldnames plus
+            # extrasaction="ignore" used to drop the later ones silently.
+            for name in reader.fieldnames or []:
+                if name not in seen_fields:
+                    seen_fields.add(name)
+                    fieldnames.append(name)
             for row in reader:
                 email = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
                 # A row with no address has nothing to dedupe on: every one of
@@ -54,6 +61,8 @@ def merge_enriched(
                     seen_emails.add(email)
                 all_rows.append(row)
 
+    if not fieldnames:
+        fieldnames = ["primary_email"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
@@ -70,10 +79,10 @@ def merge_enriched(
         # auto_merge is switched off whenever workers > 1 — which is a caller's
         # promise, not a property of this function.
         with manifest_lock(manifest_path):
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = fsutil.load_json(manifest_path, {})
             manifest["merged_output"] = str(output_path.relative_to(ROOT))
             manifest["merged_row_count"] = len(all_rows)
-            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            fsutil.atomic_write_json(manifest_path, manifest)
 
     return len(all_rows)
 

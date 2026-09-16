@@ -44,11 +44,14 @@ def verified_output_path(source: Path, override: Path | None = None) -> Path:
 
 
 def api_get(path: str, params: dict, api_key: str, *, retries: int = 3) -> dict:
-    params = {**params, "key": api_key}
     url = f"{API_BASE}/{path}?{urllib.parse.urlencode(params)}"
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
-        req = urllib.request.Request(url, method="GET")
+        req = urllib.request.Request(
+            url,
+            method="GET",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.loads(resp.read().decode())
@@ -64,11 +67,17 @@ def api_get(path: str, params: dict, api_key: str, *, retries: int = 3) -> dict:
     raise last_exc  # pragma: no cover — loop always returns or raises
 
 
-def api_post(path: str, body: dict) -> tuple[int, dict]:
+def api_post(path: str, body: dict, api_key: str = "") -> tuple[int, dict]:
     url = f"{API_BASE}/{path}"
-    data = json.dumps(body).encode()
+    payload = dict(body)
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    else:
+        payload.setdefault("key", os.environ.get("REOON_API_KEY", "").strip())
+    data = json.dumps(payload).encode()
     req = urllib.request.Request(
-        url, data=data, method="POST", headers={"Content-Type": "application/json"}
+        url, data=data, method="POST", headers=headers
     )
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
@@ -130,20 +139,21 @@ def print_balance(api_key: str) -> None:
 
 
 def remaining_today(daily_limit: int, api_key: str) -> int:
-    usage = daily_usage()
-    local_left = max(0, daily_limit - int(usage.get("verified_count", 0)))
+    with fsutil.file_lock(STATE_FILE):
+        usage = daily_usage()
+        local_left = max(0, daily_limit - int(usage.get("verified_count", 0)))
 
-    try:
-        balance = account_balance(api_key)
-        api_daily = int(balance.get("remaining_daily_credits", 0))
-        print(
-            f"Reoon credits — daily remaining: {api_daily}, "
-            f"instant remaining: {balance.get('remaining_instant_credits', '?')}"
-        )
-        return min(local_left, api_daily)
-    except Exception as exc:
-        print(f"Warning: could not check balance ({exc}); using local cap only.", file=sys.stderr)
-        return local_left
+        try:
+            balance = account_balance(api_key)
+            api_daily = int(balance.get("remaining_daily_credits", 0))
+            print(
+                f"Reoon credits — daily remaining: {api_daily}, "
+                f"instant remaining: {balance.get('remaining_instant_credits', '?')}"
+            )
+            return min(local_left, api_daily)
+        except Exception as exc:
+            print(f"Warning: could not check balance ({exc}); using local cap only.", file=sys.stderr)
+            return local_left
 
 
 def verify_batch(
@@ -297,7 +307,8 @@ def verify_bulk(emails: list[str], api_key: str, task_name: str) -> dict[str, di
     else:
         status, created = api_post(
             "create-bulk-verification-task/",
-            {"name": task_name[:25], "emails": emails, "key": api_key},
+            {"name": task_name[:25], "emails": emails},
+            api_key,
         )
         if status != 201 or created.get("status") != "success":
             raise SystemExit(f"Bulk task creation failed ({status}): {created}")

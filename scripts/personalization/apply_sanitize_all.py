@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil  # noqa: E402
 from lead_personalization.qa import qa  # noqa: E402
 from lead_personalization.sanitize import sanitize_email  # noqa: E402
 from personalization import artifacts  # noqa: E402
@@ -31,7 +31,7 @@ def fix_batch(
     if not research_path.exists() or not copy_path.exists():
         raise FileNotFoundError(f"Missing research/copy for batch {batch_id}")
 
-    copy_data = json.loads(copy_path.read_text(encoding="utf-8"))
+    copy_data = fsutil.load_json(copy_path, {})
 
     emails_fixed = 0
     before_fail = 0
@@ -54,7 +54,7 @@ def fix_batch(
             new_seq.append([new_subj, new_body])
         copy_data[email] = new_seq
 
-    copy_path.write_text(json.dumps(copy_data, indent=2), encoding="utf-8")
+    fsutil.atomic_write_json(copy_path, copy_data)
 
     build_result = build_batch(
         source, research_path, copy_path, batch_id, enriched_dir, copy_dir, prefix=prefix

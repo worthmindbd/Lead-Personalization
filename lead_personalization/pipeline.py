@@ -61,7 +61,7 @@ def domain_company(website: str) -> str:
             return ""
         base = host.split(".")[0]
         return base.replace("-", " ").title()
-    except Exception:
+    except (ValueError, AttributeError):
         return ""
 
 

@@ -46,15 +46,16 @@ def api_token() -> str:
     return os.environ.get("APIFY_API_TOKEN", "").strip()
 
 
-def api_tokens() -> list[str]:
-    load_dotenv(ROOT / ".env")
-    env = os.environ
+def api_tokens(*, _env: dict | None = None) -> list[str]:
+    if _env is None:
+        load_dotenv(ROOT / ".env")
+        _env = os.environ
     raw_fallbacks = (
-        env.get("APIFY_API_TOKENS", "").strip()
-        or env.get("APIFY_FALLBACK_TOKENS", "").strip()
-        or env.get("APIFY_API_FALLBACK_TOKENS", "").strip()
+        _env.get("APIFY_API_TOKENS", "").strip()
+        or _env.get("APIFY_FALLBACK_TOKENS", "").strip()
+        or _env.get("APIFY_API_FALLBACK_TOKENS", "").strip()
     )
-    primary = api_token()
+    primary = _env.get("APIFY_API_TOKEN", "").strip()
     combined = []
     if primary:
         combined.append(primary)
@@ -78,6 +79,8 @@ def scrape_profiles(
     without LinkedIn" into "the batch dies". The check happens before delegating
     so there is one path, not two.
     """
+    if not api_token():
+        raise SystemExit("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")
     tokens = api_tokens()
     if not tokens:
         raise SystemExit("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")

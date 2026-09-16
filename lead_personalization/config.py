@@ -20,12 +20,21 @@ def load_dotenv(path: Path) -> None:
     """Populate os.environ from a .env file (does not overwrite existing keys)."""
     if not path.is_file():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        key = key.strip()
+        value = value.strip()
+        if "#" in value and not (
+            (value.startswith('"') and '"' in value[1:])
+            or (value.startswith("'") and "'" in value[1:])
+        ):
+            value = value.split("#", 1)[0].strip()
+        os.environ.setdefault(key, value.strip('"').strip("'"))
 
 
 @dataclass

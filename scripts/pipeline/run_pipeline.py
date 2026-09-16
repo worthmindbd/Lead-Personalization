@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import fcntl
 import hashlib
 import json
 import os
@@ -37,6 +36,11 @@ import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows: no fcntl; single-run guard degrades to unlocked
+    fcntl = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -180,6 +184,9 @@ def pipeline_run_lock():
     """
     PIPELINE_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
     with PIPELINE_LOCK_FILE.open("w", encoding="utf-8") as lock_file:
+        if fcntl is None:
+            yield
+            return
         try:
             fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
@@ -548,9 +555,16 @@ def stage_verify(title: str, entry: dict, args) -> None:
             PY, str(ROOT / "scripts" / "verify_emails_reoon.py"),
             str(cleaned), "-o", str(verified), "--limit", str(args.verify_limit),
         ]
-        proc = subprocess.run(cmd, cwd=ROOT, timeout=VERIFY_TIMEOUT_S)
-        if proc.returncode != 0:
-            print(f"   WARNING: verify exited {proc.returncode}; continuing with existing verified list")
+        try:
+            proc = subprocess.run(cmd, cwd=ROOT, timeout=VERIFY_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            print(
+                f"   WARNING: verify timed out after {VERIFY_TIMEOUT_S}s; "
+                "continuing with existing verified list"
+            )
+        else:
+            if proc.returncode != 0:
+                print(f"   WARNING: verify exited {proc.returncode}; continuing with existing verified list")
 
     pending = pending_verification(cleaned)
     entry["pending_verification"] = pending
@@ -792,7 +806,9 @@ def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | N
     for bid in batch_ids:
         emails_json = artifacts.emails_json(entry["slug"], bid, COPY_DIR)
         if emails_json.is_file():
-            data = json.loads(emails_json.read_text(encoding="utf-8"))
+            data = load_json(emails_json, [])
+            if not isinstance(data, list):
+                continue
             total_leads += len(data)
             total_pass += sum(
                 1 for lead in data for step in lead["sequence"] if step["qa"]["pass"]
@@ -813,7 +829,8 @@ def write_list_review(entry: dict, batch_ids: list[str], stamp: str) -> Path | N
         "",
     ]
     out = COPY_DIR / f"{entry['slug']}-pipeline-review-{stamp}.md"
-    out.write_text("\n".join(lines) + "\n\n".join(sections), encoding="utf-8")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_text(out, "\n".join(lines) + "\n\n".join(sections))
     return out
 
 
@@ -911,7 +928,13 @@ def stage_personalize(title: str, entry: dict, args, state: dict) -> None:
             cmd.append("--no-render")
         if args.no_linkedin:
             cmd.append("--no-linkedin")
-        proc = subprocess.run(cmd, cwd=ROOT, timeout=PERSONALIZE_TIMEOUT_S)
+        try:
+            proc = subprocess.run(cmd, cwd=ROOT, timeout=PERSONALIZE_TIMEOUT_S)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"run_batches timed out after {PERSONALIZE_TIMEOUT_S}s — "
+                "state kept, next run resumes this delta"
+            ) from exc
         if proc.returncode != 0:
             raise RuntimeError(
                 f"run_batches exited {proc.returncode} — state kept, next run resumes this delta"

@@ -32,6 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil
 from lead_personalization.config import Config
 from lead_personalization.copywriter import fix_sequence, generate_sequence  # noqa: E402
 from lead_personalization.naming import campaign_stem  # noqa: E402
@@ -108,8 +109,9 @@ def process_batch(
     auto_merge: bool = True,
 ) -> dict:
     campaigns_dir = campaigns_dir or ROOT / "campaigns"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    batch = next((b for b in manifest["batches"] if b["id"] == batch_id), None)
+    manifest = fsutil.load_json(manifest_path, {})
+    batches = manifest.get("batches", [])
+    batch = next((b for b in batches if b.get("id") == batch_id), None)
     if not batch:
         raise SystemExit(f"Batch {batch_id} not found in manifest")
 
@@ -123,7 +125,11 @@ def process_batch(
         all_rows = list(csv.DictReader(handle))
 
     # Every lead in the list gets copy — no fit-based exclusion.
-    batch_rows = [all_rows[i] for i in batch["rows"]]
+    batch_rows = []
+    for i in batch.get("rows", []):
+        if not isinstance(i, int) or not 0 <= i < len(all_rows):
+            raise SystemExit(f"Batch {batch_id} references missing row {i}")
+        batch_rows.append(all_rows[i])
 
     research_path = artifacts.research_json(prefix, batch_id, campaigns_dir)
     copy_path = artifacts.copy_json(prefix, batch_id, campaigns_dir)
@@ -164,7 +170,7 @@ def process_batch(
         # this module is already loaded.
         renderer = NodePlaywrightRenderer(RENDER_SCRIPT, ROOT, RENDER_TIMEOUT_S)
 
-        for row_index, row in zip(batch["rows"], batch_rows):
+        for row_index, row in zip(batch.get("rows", []), batch_rows):
             try:
                 item = research_lead(
                     row, li_scraped, renderer=renderer, render_fallback=RENDER_FALLBACK
@@ -190,8 +196,8 @@ def process_batch(
             copy_out[str(row_index)] = [[s, b] for s, b in seq]
 
         campaigns_dir.mkdir(parents=True, exist_ok=True)
-        research_path.write_text(json.dumps(research_out, indent=2), encoding="utf-8")
-        copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
+        fsutil.atomic_write_json(research_path, research_out)
+        fsutil.atomic_write_json(copy_path, copy_out)
 
         update_batch_status(manifest_path, batch_id, "copy_done")
 

@@ -11,7 +11,6 @@ in formatting.
 from __future__ import annotations
 
 import csv
-import json
 import sys
 from pathlib import Path
 
@@ -19,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil  # noqa: E402
 from lead_personalization.naming import campaign_stem  # noqa: E402
 from lead_personalization.pipeline import (  # noqa: E402,F401
     DERIVED_FIELDS,
@@ -44,7 +44,9 @@ DEFAULT_JSON_OUT = ROOT / "campaigns" / "mix-leads-normalized.json"
 
 
 def count_named_path(stem: str, count: int, label: str, directory: Path) -> Path:
-    return directory / f"{stem}-{count}-{label}.csv"
+    from personalization.clean_gmb_leads import count_named_path as _count
+
+    return _count(stem, count, label, directory)
 
 
 def normalized_output_path(source: Path, row_count: int) -> Path:
@@ -72,8 +74,13 @@ def normalize_leads(
     # the default source keeps its stable default output; any other source gets
     # the count-named path next to itself.
     if csv_out is None:
+        try:
+            resolved = source.resolve()
+            default_resolved = DEFAULT_SOURCE.resolve()
+        except OSError:
+            resolved, default_resolved = source, DEFAULT_SOURCE
         csv_out = (
-            DEFAULT_CSV_OUT if source == DEFAULT_SOURCE
+            DEFAULT_CSV_OUT if resolved == default_resolved
             else normalized_output_path(source, len(normalized))
         )
     json_out = json_out or DEFAULT_JSON_OUT
@@ -85,7 +92,7 @@ def normalize_leads(
         writer.writerows(normalized)
 
     json_out.parent.mkdir(parents=True, exist_ok=True)
-    json_out.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+    fsutil.atomic_write_json(json_out, normalized)
 
     tiers = {}
     segments = {}

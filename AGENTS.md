@@ -64,9 +64,9 @@ No fit score, no tiering, no "good prospect" filter. A lead is only removed when
 
 Every artifact a personalization run writes into shared directories (`campaigns/`, `copy/`, `leads/enriched/`) is prefixed with the list's slug — defined in `scripts/personalization/artifacts.py`. Merges glob only their own prefix so two lists can run side by side.
 
-### Copy rules
+### Copy rules (dual-tier — see table below)
 
-Greeting is always `Hi,`; company name never appears in copy; each email follows issue → solution → soft CTA. Openers/solutions/CTAs rotate from variant pools. The `copy_variant` column tracks which combination each lead got for reply-rate comparison.
+Greeting is `Hi {first_name},` for person-tier leads, `Hi,` for company-tier; company name never appears in copy; each email follows issue → solution → soft CTA (email 3 is the breakup: closer + support + question, no new observation). Openers/solutions/CTAs rotate from variant pools. The `copy_variant` column tracks which combination each lead got for reply-rate comparison.
 
 ## Lead personalization workflow
 
@@ -94,7 +94,7 @@ When working on lead lists, cold email, outbound, CSV enrichment, or files under
 
 Evidence priority for the opener: `linkedin_posts` → `site_video` → `social_video` → `positioning` → `weak`. `signal_strength` (strong/weak) per lead; weak-signal leads get the honest generic variant, never a fabricated observation. Signal must be verifiable.
 
-## QA checks (enforced by `scripts/personalization/qa.py`)
+## QA checks (enforced by `lead_personalization/qa.py`)
 
 - Word count: ≤100 words
 - First line: specific signal; no small talk

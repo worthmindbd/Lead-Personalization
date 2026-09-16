@@ -61,6 +61,12 @@ class NodePlaywrightRenderer:
                 timeout=self.timeout_s,
                 cwd=str(self.cwd),
             )
+            if proc.returncode != 0:
+                result["error"] = (
+                    f"render failed (node exit {proc.returncode}): "
+                    f"{proc.stderr.strip()[:100]}"
+                )
+                return result
             data = json.loads(proc.stdout.strip() or "{}")
             for key in ("title", "description", "h1", "has_video", "fetched", "error"):
                 if key in data:

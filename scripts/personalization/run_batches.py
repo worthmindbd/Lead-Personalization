@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
@@ -19,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil
 from lead_personalization.offer_pack import OfferPackError, load_offer_pack  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization import process_batch as pb  # noqa: E402
@@ -40,7 +40,7 @@ def _source_from_manifest() -> Path:
     default = ROOT / "leads" / "all-leads-with-email-normalized.csv"
     if not MANIFEST.exists():
         return default
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = fsutil.load_json(MANIFEST, {})
     src = manifest.get("source")
     return (ROOT / src) if src else default
 
@@ -61,21 +61,23 @@ def use_manifest(path: Path) -> None:
 
 
 def update_master_review(manifest_path: Path) -> None:
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = fsutil.load_json(manifest_path, {})
     prefix = artifacts.prefix_for(manifest_path)
     copy_dir = ROOT / "copy"
     total_pass = 0
     total_emails = 0
     batch_summaries = []
 
-    for batch in manifest["batches"]:
-        bid = batch["id"]
+    for batch in manifest.get("batches", []):
+        bid = batch.get("id", "")
         json_path = artifacts.emails_json(prefix, bid, copy_dir)
         if not json_path.exists():
             continue
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-        bp = sum(1 for lead in data for step in lead["sequence"] if step["qa"]["pass"])
-        bt = sum(len(lead["sequence"]) for lead in data)
+        data = fsutil.load_json(json_path, [])
+        if not isinstance(data, list):
+            continue
+        bp = sum(1 for lead in data for step in lead.get("sequence", []) if step.get("qa", {}).get("pass"))
+        bt = sum(len(lead.get("sequence", [])) for lead in data)
         total_pass += bp
         total_emails += bt
         batch_summaries.append((bid, len(data), bp, bt, batch.get("status", "")))
@@ -94,7 +96,7 @@ def update_master_review(manifest_path: Path) -> None:
 
     out = artifacts.master_review_md(prefix, copy_dir)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fsutil.atomic_write_text(out, "\n".join(lines) + "\n")
     print(f"Master review -> {out}")
 
 
@@ -106,13 +108,13 @@ def _warm_linkedin_cache(targets: list[str]) -> None:
     """
     if not pb.LINKEDIN_ENRICH or not MANIFEST.exists():
         return
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = fsutil.load_json(MANIFEST, {})
     target_set = set(targets)
     prefix = artifacts.prefix_for(MANIFEST)
     campaigns_dir = ROOT / "campaigns"
     row_ids: list[int] = []
-    for batch in manifest["batches"]:
-        if batch["id"] not in target_set:
+    for batch in manifest.get("batches", []):
+        if batch.get("id") not in target_set:
             continue
         # A batch that will rebuild from disk does no research, so its URLs
         # must not cost a paid scrape here.
@@ -122,7 +124,7 @@ def _warm_linkedin_cache(targets: list[str]) -> None:
             artifacts.copy_json(prefix, batch["id"], campaigns_dir),
         ):
             continue
-        row_ids.extend(batch["rows"])
+        row_ids.extend(i for i in batch.get("rows", []) if isinstance(i, int))
     if not row_ids:
         return
     with SOURCE.open(newline="", encoding="utf-8") as handle:
@@ -167,13 +169,13 @@ def run_batches(
     merge: bool = False,
     workers: int = 1,
 ) -> None:
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    manifest = fsutil.load_json(MANIFEST, {})
     # Parallel runs must not merge concurrently; merge once at the end instead.
     auto_merge = workers <= 1
 
     if all_pending:
         targets = [
-            b["id"] for b in manifest["batches"]
+            b.get("id") for b in manifest.get("batches", [])
             if b.get("status") in RESUMABLE_STATUSES
         ]
     elif batch_ids:
@@ -278,8 +280,8 @@ def main() -> None:
         run_batches(batch_ids=args.batch_id, merge=args.merge, workers=args.workers)
         return
 
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    all_ids = [b["id"] for b in manifest["batches"]]
+    manifest = fsutil.load_json(MANIFEST, {})
+    all_ids = [b.get("id") for b in manifest.get("batches", []) if b.get("id")]
     start = args.from_id
     end = args.to_id or all_ids[-1]
     targets = [bid for bid in all_ids if start <= bid <= end]

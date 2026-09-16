@@ -84,6 +84,9 @@ HARD_CTA_PATTERNS = [
     "free tuesday",
     "schedule a call",
     "grab 30 minutes",
+    "ten-minute call",
+    "ten minute call",
+    "quick call",
 ]
 
 # Truncation artifacts from snippet clipping must never reach a prospect.
@@ -119,11 +122,11 @@ def contains_forbidden(text: str) -> bool:
 
 
 def subject_has_spam(subject: str) -> bool:
-    low = subject.lower().strip()
-    words = subject.split()
+    low = (subject or "").lower().strip()
+    words = low.split()
     if sum(1 for w in words if w.isupper() and len(w) > 2) >= 2:
         return True
-    if "!" in subject:
+    if "!" in (subject or ""):
         return True
     for trigger in SUBJECT_SPAM_WORDS:
         if trigger in low:

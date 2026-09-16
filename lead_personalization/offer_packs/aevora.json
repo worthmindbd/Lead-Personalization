@@ -12,7 +12,7 @@
       "Your site embeds video, and that is rarer than it should be for {peer} in {loc}. What separates a view from an inquiry is almost always the finishing, not the footage."
     ],
     "social_video": [
-      "Saw the {channel} link on your listing, but the site itself does not lead with video, and that is usually the first place buyers look.",
+      "Saw the {channel} link on your site, but the site itself does not lead with video, and that is usually the first place buyers look.",
       "You are set up on {channel}, yet the website carries no video. For {peer}, that is often the gap between a visit and an inquiry."
     ],
     "positioning": [
@@ -21,7 +21,7 @@
     ],
     "weak": [
       "Most {peer} in {loc} sit on usable footage already: walkthroughs, events, phone clips that never become finished video.",
-      "Few {peer} in {loc} publish finished video, which makes it one of the cheapest ways to stand out right now."
+      "Few {peer} in {loc} publish finished video, which makes it one of the most overlooked ways to stand out right now."
     ]
   },
   "segment_copy": {
@@ -149,7 +149,7 @@
     ],
     "3": [
       "When footage gets shot on your side, who finishes it, or does it wait?",
-      "Open to a ten-minute call to see if this maps to how you work?",
+      "Open to a sample cut so you can judge the finish directly?",
       "Want one sample cut so you can judge the finish directly?"
     ]
   },

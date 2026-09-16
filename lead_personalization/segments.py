@@ -113,7 +113,7 @@ _add(
 _add(
     "real_estate",
     "Real estate agency", "Real estate agent", "Commercial real estate agency",
-    "Real estate developer", "Real estate consultant", "Real estate attorney",
+    "Real estate developer", "Real estate consultant",
     "Real estate rental agency", "Real estate school", "Title company", "Escrow service",
     "Property management company", "Property investment company",
     "Apartment rental agency", "Apartment complex", "Condominium complex",
@@ -387,13 +387,18 @@ def segment_for_category(category: str) -> str:
 
 
 def looks_like_business(name: str) -> bool:
-    if BUSINESS_NAME_MARKERS.search(name):
+    if BUSINESS_NAME_MARKERS.search(name or ""):
         return True
+    name = name or ""
     if name.isupper() and len(name) > 3:
         return True
     words = name.split()
+    # A bare long token is only a business signal when it also carries a
+    # business fragment ("LakeviewHomes"); a bare long first name
+    # ("Christopher", "Alexandra") must not mis-tier to company.
     if len(words) == 1 and len(name) > 8:
-        return True
+        low = name.lower()
+        return any(frag in low for frag in BUSINESS_FRAGMENT_WORDS)
     return False
 
 
@@ -428,9 +433,15 @@ BUSINESS_FRAGMENT_WORDS = frozenset({
 
 
 def is_generic_email(email: str) -> bool:
-    local = email.split("@", 1)[0].lower()
+    local = (email or "").split("@", 1)[0].lower()
     local = re.sub(r"[^a-z0-9]", "", local)
-    return any(local == p or local.startswith(p) for p in GENERIC_EMAIL_PREFIXES)
+    # Exact match, or the prefix followed by a digit run ("sales2"): bare
+    # startswith collided with real names ("salesperson@", "teamlead@",
+    # "helpful@"), mis-tiering person leads to company.
+    return any(
+        local == p or (local.startswith(p) and local[len(p):].isdigit())
+        for p in GENERIC_EMAIL_PREFIXES
+    )
 
 
 def is_plausible_first_name(name: str) -> bool:
@@ -442,9 +453,12 @@ def is_plausible_first_name(name: str) -> bool:
         return False
     if token.isupper() and len(token) > 2:
         return False
-    if not token[0].isupper():
+    # CSV names arrive in any case ("jane"); validate the lowercased token
+    # rather than mis-tiering a real contact to company.
+    probe = token[:1].upper() + token[1:]
+    if not probe[0].isupper():
         return False
-    if looks_like_business(token):
+    if looks_like_business(probe):
         return False
     return True
 

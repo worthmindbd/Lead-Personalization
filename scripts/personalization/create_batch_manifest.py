@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import csv
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil  # noqa: E402
 from personalization import artifacts  # noqa: E402
 
 DEFAULT_SOURCE = ROOT / "leads" / "all-leads-with-email-normalized.csv"
@@ -60,9 +61,13 @@ def create_manifest(
     # Recorded, not just implied by the filename: every downstream artifact
     # name is built from it, and a manifest that has been moved or renamed
     # should still name its own files.
+    try:
+        source_rel = str(source.resolve().relative_to(ROOT.resolve()))
+    except (OSError, ValueError):
+        source_rel = str(source)
     manifest = {
         "prefix": artifacts.prefix_from_manifest_name(manifest_path),
-        "source": str(source.relative_to(ROOT)),
+        "source": source_rel,
         "batch_size": batch_size,
         "total_leads": len(rows),
         "total_batches": len(batches),
@@ -70,7 +75,7 @@ def create_manifest(
     }
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    fsutil.atomic_write_json(manifest_path, manifest)
 
     print(f"Manifest: {len(batches)} batches, {len(rows)} leads -> {manifest_path}")
     return manifest

@@ -111,7 +111,7 @@ def _rotate(items: list[str], key: str, salt: str) -> list[str]:
     """
     if len(items) < 2 or not key:
         return list(items)
-    digest = int(hashlib.md5(f"{salt}:{key}".encode()).hexdigest(), 16)
+    digest = int(hashlib.md5(f"{salt}:{key}".encode(), usedforsecurity=False).hexdigest(), 16)
     offset = digest % len(items)
     return items[offset:] + items[:offset]
 
@@ -209,9 +209,11 @@ def build_subject(
             return subj
 
     safe = _clean(hook or category or "your project clips", 40).lower()
-    if subject_is_fragment(safe):
-        # The raw hook landed on a function word; prefer the category or a
-        # generic phrase over a broken send.
+    if subject_is_fragment(safe) or subject_has_spam(safe):
+        # The raw hook landed on a function word or carries a spam trigger;
+        # prefer the category or a generic phrase over a broken send.
         safe = _clean(category or "your project clips", 40).lower()
+    if subject_has_spam(safe) or subject_is_fragment(safe):
+        safe = "video workflow question"
     used_subjects.add(safe)
     return safe[:50]

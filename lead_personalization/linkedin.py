@@ -10,7 +10,6 @@ No cookies/account required by the actor. Requires an Apify API token.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -22,10 +21,13 @@ from pathlib import Path
 
 from typing import Sequence
 
+from lead_personalization import fsutil
+
 ACTOR = "harvestapi~linkedin-profile-posts"
 ENDPOINT = f"https://api.apify.com/v2/acts/{ACTOR}/run-sync-get-dataset-items"
 DEFAULT_MAX_POSTS = 2
 HTTP_TIMEOUT = 600
+CHUNK = 40
 
 _URL_RE = re.compile(r"https?://\S+|lnkd\.in/\S+", re.I)
 _HASHTAG_RE = re.compile(r"#\w+")
@@ -74,31 +76,17 @@ def li_handle(url: str) -> str:
 
 @contextmanager
 def _cache_lock(cache_file: Path):
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = cache_file.with_suffix(cache_file.suffix + ".lock")
-    with lock_path.open("w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+    with fsutil.file_lock(cache_file):
+        yield
 
 
 def _load_cache(cache_file: Path) -> dict:
-    if not cache_file.is_file():
-        return {}
-    try:
-        return json.loads(cache_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    return fsutil.load_json(cache_file, {})
 
 
 def _save_cache(cache_file: Path, cache: dict) -> None:
     """Atomic write: temp file + os.replace so readers never see a partial file."""
-    cache_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp = cache_file.with_suffix(cache_file.suffix + ".tmp")
-    tmp.write_text(json.dumps(cache, indent=2), encoding="utf-8")
-    os.replace(tmp, cache_file)
+    fsutil.atomic_write_json(cache_file, cache)
 
 
 def clean_post_topic(content: str, max_words: int = 12) -> str:
@@ -162,9 +150,14 @@ def _call_actor(urls: list[str], token: str, max_posts: int) -> list[dict]:
         "includeQuotePosts": True,
     }
     data = json.dumps(payload).encode()
-    url = f"{ENDPOINT}?token={token}"
     req = urllib.request.Request(
-        url, data=data, method="POST", headers={"Content-Type": "application/json"}
+        ENDPOINT,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
     )
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:
         body = resp.read().decode()
@@ -194,97 +187,133 @@ def scrape_profiles(
     no posts are cached as empty lists so silent profiles are not re-paid for.
     """
     tokens = parse_tokens(token)
-
-    with _cache_lock(cache_file):
-        cache = _load_cache(cache_file)
-        result: dict[str, list[dict]] = {}
-        pending: list[str] = []
-        pending_handles: list[str] = []
-
-        for url in urls:
-            h = li_handle(url)
-            if not h:
-                continue
-            if not force and h in cache:
-                result[h] = cache[h].get("posts", [])
-            else:
-                pending.append(url)
-                pending_handles.append(h)
-
-        if not pending:
-            return result
-
-        if not tokens:
-            raise RuntimeError("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")
-
-        CHUNK = 40
-        # UTC, matching the Reoon daily-usage tracker: cache stamps feed
-        # freshness decisions that must not depend on the machine's timezone.
-        stamp = datetime.now(timezone.utc).date().isoformat()
-        active_token_idx = 0
-        num_tokens = len(tokens)
-
-        for offset in range(0, len(pending), CHUNK):
-            chunk_urls = pending[offset : offset + CHUNK]
-            chunk_handles = pending_handles[offset : offset + CHUNK]
-            chunk_num = offset // CHUNK + 1
-
-            items = None
-            attempts = 0
-            while attempts < num_tokens:
-                curr_token = tokens[active_token_idx]
-                token_display = (
-                    f"{curr_token[:4]}...{curr_token[-4:]}" if len(curr_token) > 8 else "***"
-                )
-                try:
-                    items = _call_actor(chunk_urls, curr_token, max_posts)
-                    break
-                except (
-                    urllib.error.URLError,
-                    urllib.error.HTTPError,
-                    TimeoutError,
-                    OSError,
-                    Exception,
-                ) as exc:
-                    detail = ""
-                    if isinstance(exc, urllib.error.HTTPError):
-                        try:
-                            detail = exc.read().decode()[:200]
-                        except Exception:
-                            detail = ""
-                    err_msg = f"{exc} {detail}".strip()
-                    attempts += 1
-                    if attempts < num_tokens:
-                        print(
-                            f"Apify LinkedIn scrape failed with token {token_display} "
-                            f"(chunk {chunk_num}): {err_msg}. Falling back to next token..."
-                        )
-                        active_token_idx = (active_token_idx + 1) % num_tokens
-                    else:
-                        print(
-                            f"Apify LinkedIn scrape failed (chunk {chunk_num}): {err_msg} "
-                            f"(exhausted all {num_tokens} token(s))"
-                        )
-                        active_token_idx = (active_token_idx + 1) % num_tokens
-
-            if items is None:
-                continue
-
-            grouped: dict[str, list[dict]] = {}
-            for post in items:
-                if (post.get("type") or "post") not in ("post", "repost", "quote"):
+    if not tokens:
+        with _cache_lock(cache_file):
+            cache = _load_cache(cache_file)
+            result: dict[str, list[dict]] = {}
+            for url in urls:
+                h = li_handle(url)
+                if not h:
                     continue
-                summary = _summarize_post(post)
-                for h in _post_handles(post):
-                    grouped.setdefault(h, []).append(summary)
+                if not force and h in cache:
+                    result[h] = cache[h].get("posts", [])
+            if result:
+                return result
+        raise RuntimeError("APIFY_API_TOKEN not set. Add it to .env (see .env.example).")
 
-            for h in chunk_handles:
-                posts = grouped.get(h, [])[:max_posts]
-                cache[h] = {"posts": posts, "scraped_at": stamp}
-                result[h] = posts
-            _save_cache(cache_file, cache)
+    # Snapshot under the lock, fetch outside it. The lock used to wrap the
+    # whole loop including the HTTP calls (up to 600s per chunk), so parallel
+    # workers serialized for minutes on paid fetches.
+    with _cache_lock(cache_file):
+        cache_snapshot = _load_cache(cache_file)
+    result = {}
+    pending: list[str] = []
+    pending_handles: list[str] = []
 
+    for url in urls:
+        h = li_handle(url)
+        if not h:
+            continue
+        if not force and h in cache_snapshot:
+            result[h] = cache_snapshot[h].get("posts", [])
+        else:
+            pending.append(url)
+            pending_handles.append(h)
+
+    if not pending:
         return result
+
+    LINKEDIN_CHUNK = CHUNK
+    # UTC, matching the Reoon daily-usage tracker: cache stamps feed
+    # freshness decisions that must not depend on the machine's timezone.
+    stamp = datetime.now(timezone.utc).date().isoformat()
+    active_token_idx = 0
+    num_tokens = len(tokens)
+    fetched: dict[str, list[dict]] = {}
+
+    for offset in range(0, len(pending), LINKEDIN_CHUNK):
+        chunk_urls = pending[offset : offset + LINKEDIN_CHUNK]
+        chunk_handles = pending_handles[offset : offset + LINKEDIN_CHUNK]
+        chunk_num = offset // LINKEDIN_CHUNK + 1
+
+        items = None
+        attempts = 0
+        while attempts < num_tokens:
+            curr_token = tokens[active_token_idx]
+            token_display = (
+                f"{curr_token[:4]}...{curr_token[-4:]}" if len(curr_token) > 8 else "***"
+            )
+            try:
+                items = _call_actor(chunk_urls, curr_token, max_posts)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code in (401, 403):
+                    raise RuntimeError(
+                        f"Apify auth failed with token {token_display} "
+                        f"(HTTP {exc.code}): check APIFY_API_TOKEN."
+                    ) from exc
+                detail = ""
+                try:
+                    detail = exc.read().decode()[:200]
+                except Exception:
+                    detail = ""
+                err_msg = f"{exc} {detail}".strip()
+                attempts += 1
+                if attempts < num_tokens:
+                    print(
+                        f"Apify LinkedIn scrape failed with token {token_display} "
+                        f"(chunk {chunk_num}): {err_msg}. Falling back to next token..."
+                    )
+                    active_token_idx = (active_token_idx + 1) % num_tokens
+                else:
+                    print(
+                        f"Apify LinkedIn scrape failed (chunk {chunk_num}): {err_msg} "
+                        f"(exhausted all {num_tokens} token(s))"
+                    )
+                    active_token_idx = (active_token_idx + 1) % num_tokens
+            except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
+                err_msg = str(exc).strip()
+                attempts += 1
+                if attempts < num_tokens:
+                    print(
+                        f"Apify LinkedIn scrape failed with token {token_display} "
+                        f"(chunk {chunk_num}): {err_msg}. Falling back to next token..."
+                    )
+                    active_token_idx = (active_token_idx + 1) % num_tokens
+                else:
+                    print(
+                        f"Apify LinkedIn scrape failed (chunk {chunk_num}): {err_msg} "
+                        f"(exhausted all {num_tokens} token(s))"
+                    )
+                    active_token_idx = (active_token_idx + 1) % num_tokens
+
+        if items is None:
+            continue
+
+        grouped: dict[str, list[dict]] = {}
+        for post in items:
+            if (post.get("type") or "post") not in ("post", "repost", "quote"):
+                continue
+            summary = _summarize_post(post)
+            for h in _post_handles(post):
+                grouped.setdefault(h, []).append(summary)
+
+        for h in chunk_handles:
+            fetched[h] = grouped.get(h, [])[:max_posts]
+
+    if fetched:
+        # Re-lock only to merge. Another process may have written while we
+        # fetched, so reload and merge rather than overwrite.
+        with _cache_lock(cache_file):
+            merged_cache = _load_cache(cache_file)
+            if not isinstance(merged_cache, dict):
+                merged_cache = {}
+            for h, posts in fetched.items():
+                merged_cache[h] = {"posts": posts, "scraped_at": stamp}
+            _save_cache(cache_file, merged_cache)
+        result.update(fetched)
+
+    return result
 
 
 def posts_for_url(url: str, scraped: dict[str, list[dict]]) -> list[dict]:

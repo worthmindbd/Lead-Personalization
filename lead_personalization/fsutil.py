@@ -8,21 +8,36 @@ process can never leave a truncated or half-written file behind.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import sys
+import tempfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows: no fcntl; degrade to a no-op lock
+    fcntl = None  # type: ignore[assignment]
 
 
 def atomic_write_text(path: Path, text: str) -> None:
     """Write text via tmp + os.replace so readers never see a partial file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def atomic_write_json(path: Path, data, newline: bool = True) -> None:
@@ -34,15 +49,21 @@ def atomic_write_json(path: Path, data, newline: bool = True) -> None:
 
 @contextmanager
 def file_lock(path: Path):
-    """Hold an exclusive flock on ``<path>.lock`` for the wrapped block."""
+    """Hold an exclusive flock on ``<path>.lock`` for the wrapped block.
+
+    On platforms without ``fcntl`` (Windows) this degrades to a no-op: better
+    a best-effort run than an import-time crash.
+    """
     lock_path = path.with_suffix(path.suffix + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
             yield
         finally:
-            fcntl.flock(lock_file, fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def load_json(path: Path, default):

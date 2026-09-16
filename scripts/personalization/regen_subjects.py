@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from pathlib import Path
 
@@ -41,6 +40,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "scripts" / "pipeline"))
 sys.path.insert(0, str(ROOT))
 
+from lead_personalization import fsutil
 from lead_personalization.copywriter import fix_sequence, generate_sequence  # noqa: E402
 from lead_personalization.offer_pack import load_offer_pack  # noqa: E402
 from personalization import build_enriched  # noqa: E402
@@ -86,7 +86,7 @@ def _resolve_list(query: str) -> tuple[str, str, Path]:
     state.json's ``lists`` is keyed by the human title ("July 8,2026"); the
     entry carries ``slug`` ("july-8-2026") and the workdir is derived from it.
     """
-    state = json.loads(STATE.read_text(encoding="utf-8"))
+    state = fsutil.load_json(STATE, {})
     lists = state.get("lists", {})
     for title, entry in lists.items():
         slug = entry.get("slug", "")
@@ -141,14 +141,16 @@ def main() -> None:
             copy_path = run_dir / rp.name.replace("-research.json", "-copy.json")
             source = normalized
 
-            research_items = json.loads(rp.read_text(encoding="utf-8"))
+            research_items = fsutil.load_json(rp, [])
             with source.open(newline="", encoding="utf-8-sig") as fh:
                 all_rows = list(csv.DictReader(fh))
             by_row_index, by_email = index_source_rows(all_rows)
 
             copy_out: dict[str, list[list[str]]] = {}
             for item in research_items:
-                em = item["email"]
+                if not isinstance(item, dict):
+                    continue
+                em = item.get("email") or ""
                 src = source_row_for(item, by_row_index, by_email)
                 if src is None:
                     raise SystemExit(f"missing normalized row for {em}")
@@ -156,7 +158,7 @@ def main() -> None:
                 seq = fix_sequence(seq, src, item, pack)
                 copy_out[str(item.get("row_index", em))] = [[s, b] for s, b in seq]
 
-            copy_path.write_text(json.dumps(copy_out, indent=2), encoding="utf-8")
+            fsutil.atomic_write_json(copy_path, copy_out)
 
             # Rebuild this batch's enriched CSV from the refreshed copy. Write to a
             # throwaway dir so we don't disturb leads/enriched/ for other lists.

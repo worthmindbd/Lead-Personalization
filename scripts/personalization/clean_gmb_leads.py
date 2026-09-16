@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from lead_personalization.naming import campaign_stem  # noqa: E402
-from lead_personalization.segments import is_generic_email as is_generic  # noqa: E402
+from lead_personalization.pipeline import pick_primary_email  # noqa: E402,F401
 
 LEADS_DIR = ROOT / "leads"
 
@@ -127,13 +127,6 @@ def infer_country(row: pd.Series) -> str:
     if tz.startswith("America/"):
         return "US"
     return ""
-
-
-def pick_primary_email(emails: list[str]) -> str:
-    if not emails:
-        return ""
-    personal = [e for e in emails if not is_generic(e)]
-    return personal[0] if personal else emails[0]
 
 
 def keyword_geo_mismatch(keyword: str, country: str) -> bool:

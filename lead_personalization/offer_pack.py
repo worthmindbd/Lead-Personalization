@@ -44,6 +44,12 @@ class OfferPack:
 
 
 def _validate(pack: OfferPack) -> None:
+    from lead_personalization.qa import (
+        BANNED,
+        BRAND_FORBIDDEN,
+        HARD_CTA_PATTERNS,
+        SPAM_TRIGGERS,
+    )
     if pack.version != 1:
         # The loader understands exactly one pack schema; accepting an unknown
         # version would mis-parse it into silently wrong copy.
@@ -90,6 +96,39 @@ def _validate(pack: OfferPack) -> None:
             f"disagree (only in segment_copy: {only_copy}, "
             f"only in subject_templates: {only_subjects})"
         )
+    # A banned phrase, hard CTA, or em dash in a pool ships to every lead
+    # that draws it. Fail at load, before research spends anything.
+    needles = (
+        [b.lower() for b in BANNED]
+        + [w.strip().lower() for w in BRAND_FORBIDDEN if w.strip()]
+        + [t.lower() for t in SPAM_TRIGGERS]
+        + [p.lower() for p in HARD_CTA_PATTERNS]
+        + ["—", "...", "…"]
+    )
+    pools: list[tuple[str, str]] = []
+    for evidence, items in pack.openers.items():
+        pools.extend((f"openers[{evidence}]", s) for s in items)
+    for seg, blocks in pack.segment_copy.items():
+        for key in ("solutions", "second_angle"):
+            pools.extend(
+                (f"segment_copy[{seg}][{key}]", s) for s in blocks.get(key, [])
+            )
+    for step, items in pack.cta_pools.items():
+        pools.extend((f"cta_pools[{step}]", s) for s in items)
+    pools.extend(("closers", s) for s in pack.closers)
+    pools.extend(("support_lines", s) for s in pack.support_lines)
+    for seg, steps in pack.subject_templates.items():
+        for step, items in steps.items():
+            pools.extend(
+                (f"subject_templates[{seg}][{step}]", s) for s in items
+            )
+    for where, text in pools:
+        low = (text or "").lower()
+        hit = next((n for n in needles if n and n in low), None)
+        if hit:
+            raise OfferPackError(
+                f"offer pack '{pack.name}' {where} contains forbidden text {hit!r}"
+            )
 
 
 def _coerce_int_keys(mapping: dict) -> dict:

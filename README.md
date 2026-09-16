@@ -96,11 +96,10 @@ Lead-Personalization/
 ├── copy/                    # Markdown reviews + JSON exports (data, gitignored)
 ├── .pipeline/state.json     # Drive pipeline state (runtime, gitignored)
 ├── scripts/
-│   ├── pipeline/            # Drive orchestrator: run_pipeline.py + report.py
+│   ├── pipeline/            # Drive orchestrator: run_pipeline.py + report.py + sheets_sync.py
 │   ├── verify_emails_reoon.py       # Reoon email verification (500/day cap)
 │   ├── split_leads_by_category.py   # Split mixed CSV into per-category files
-│   ├── personalization/     # Core pipeline (normalize, batch, QA, merge)
-│   └── archive/             # Legacy one-off scripts from past campaigns
+│   └── personalization/     # Core pipeline (normalize, clean, batch, QA, merge, LinkedIn shim)
 ├── .cursor/
 │   ├── skills/              # Agent skills (lead-email-personalization, playwright-cli)
 │   └── rules/               # Auto-apply workflow rule
@@ -217,7 +216,7 @@ For agent-driven runs, the skill handles research and copy; scripts handle norma
 | `copy/*-emails-*.json` | Structured sequence for import |
 | `campaigns/*-research.json` | Research signals per batch |
 
-Copy rules (company tier / Google Maps lists): greeting is always `Hi,`; the company name never appears in the copy; each email is issue → solution → soft CTA, with openers/solutions/CTAs rotated from variant pools (`copy_variant` column tracks which combination each lead got, so reply rates can be compared per variant).
+Copy rules (dual-tier): greeting is `Hi {first_name},` for person-tier leads, `Hi,` for company-tier; the company name never appears in the copy; emails 1-2 are issue → solution → soft CTA and email 3 is the breakup (closer + support + question, no new observation), with openers/solutions/CTAs rotated from variant pools (`copy_variant` column tracks which combination each lead got, so reply rates can be compared per variant).
 
 ## Skills
 
@@ -228,7 +227,7 @@ Copy rules (company tier / Google Maps lists): greeting is always `Hi,`; the com
 
 ## LinkedIn recent-post enrichment (Apify)
 
-For leads with a `Linkedin_URL`, the research step scrapes the latest 3 posts via
+For leads with a `Linkedin_URL`, the research step scrapes the latest 2 posts via
 the Apify actor [`harvestapi/linkedin-profile-posts`](https://apify.com/harvestapi/linkedin-profile-posts)
 (no cookies/account required) so copy can open with a genuinely observed signal
 ("saw your recent post on ..."). Website research still runs for every lead; if a
@@ -246,7 +245,7 @@ APIFY_API_TOKEN=...
 
 | Behavior | Detail |
 |----------|--------|
-| Posts per lead | 3 latest (`LINKEDIN_MAX_POSTS`) |
+| Posts per lead | 2 latest (`LINKEDIN_MAX_POSTS`) |
 | Cost | ~$2 / 1,000 posts (billed by Apify) |
 | Fallback APIs | Automatic failover to next token on rate limits, quota exhaustion, or API errors |
 | Cache | `.apify/linkedin_cache.json` — per-handle, never re-pays |

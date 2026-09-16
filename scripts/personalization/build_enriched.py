@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -14,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from lead_personalization import fsutil  # noqa: E402
 from lead_personalization.qa import qa, sequence_issues  # noqa: E402
 from personalization import artifacts  # noqa: E402
 
@@ -32,7 +32,7 @@ DROP_COLUMNS = {"row_index", "fit_score"}
 
 
 def load_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    return fsutil.load_json(path, [])
 
 
 def build_batch(
@@ -75,17 +75,21 @@ def build_batch(
     total_emails = 0
 
     for item in research:
-        email = item["email"].lower()
-        src = by_row_index.get(str(item.get("row_index", ""))) or by_email.get(email)
+        if not isinstance(item, dict):
+            continue
+        email_raw = item.get("email") or ""
+        email = email_raw.lower() if isinstance(email_raw, str) else ""
+        row_key = str(item.get("row_index", ""))
+        src = by_row_index.get(row_key) or (by_email.get(email) if email else None)
         if not src:
-            raise SystemExit(f"Missing source row for {item['email']}")
+            raise SystemExit(f"Missing source row for {email_raw or row_key}")
 
-        seq = copy_data.get(str(item.get("row_index", ""))) or copy_data.get(email)
+        seq = copy_data.get(row_key) or (copy_data.get(email) if email else None)
         if not seq:
-            raise SystemExit(f"Missing copy for {item['email']}")
+            raise SystemExit(f"Missing copy for {email_raw or row_key}")
 
         row = dict(src)
-        row["research_signal"] = item["research_signal"]
+        row["research_signal"] = item.get("research_signal", "")
         row["research_notes"] = item.get("research_notes", "")
         row["research_website"] = item.get("website", "")
         row["research_linkedin"] = item.get("linkedin", "")
@@ -102,7 +106,7 @@ def build_batch(
             "lead": {
                 "first_name": item.get("first_name", ""),
                 "last_name": item.get("last_name", ""),
-                "email": item["email"],
+                "email": email_raw,
                 "company": item.get("company", ""),
                 "title": item.get("title", ""),
                 "outreach_tier": item.get("outreach_tier", ""),
@@ -114,7 +118,7 @@ def build_batch(
                 "twitter": item.get("twitter", ""),
                 "facebook": item.get("facebook", ""),
             },
-            "signal": item["research_signal"],
+            "signal": item.get("research_signal", ""),
             "signal_strength": item.get("signal_strength", ""),
             "copy_variant": item.get("copy_variant", ""),
             "notes": item.get("research_notes", ""),
@@ -164,7 +168,8 @@ def build_batch(
         writer.writeheader()
         writer.writerows(out_rows)
 
-    out_json_path.write_text(json.dumps(json_out, indent=2), encoding="utf-8")
+    out_json_path.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_json(out_json_path, json_out)
 
     lines = [
         f"# {prefix} review batch {batch_id} ({len(json_out)} leads)",
@@ -197,7 +202,8 @@ def build_batch(
             lines.append("")
         lines.append("---\n")
 
-    out_md.write_text("\n".join(lines), encoding="utf-8")
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    fsutil.atomic_write_text(out_md, "\n".join(lines))
 
     return {
         "batch_id": batch_id,

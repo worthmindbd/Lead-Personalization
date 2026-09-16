@@ -9,8 +9,11 @@ copy unless it passes the usability guards here.
 from __future__ import annotations
 
 import html
+import http.client
 import re
+import ssl
 import time
+from html.parser import HTMLParser
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -27,6 +30,46 @@ GENERIC_TITLE_PARTS = {
 }
 
 
+class _SignalParser(HTMLParser):
+    """First title, first h1 (nested tags included), meta description."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.title = ""
+        self.h1 = ""
+        self.description = ""
+        self._in_title = False
+        self._in_h1 = False
+        self._title_done = False
+        self._h1_done = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        low = tag.lower()
+        if low == "title" and not self._title_done:
+            self._in_title = True
+        elif low == "h1" and not self._h1_done:
+            self._in_h1 = True
+        elif low == "meta" and not self.description:
+            by_name = {k.lower(): (v or "") for k, v in attrs}
+            if by_name.get("name", "").lower() == "description" and by_name.get("content"):
+                self.description = by_name["content"].strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        low = tag.lower()
+        if low == "title" and self._in_title:
+            self._in_title = False
+            self._title_done = True
+        elif low == "h1" and self._in_h1:
+            self._in_h1 = False
+            self._h1_done = True
+
+    def handle_data(self, data: str) -> None:
+        if self._in_title:
+            self.title += data
+        if self._in_h1:
+            self.h1 += data + " "
+
+
 def fetch_page_signals(url: str) -> dict:
     result = {
         "title": "", "description": "", "h1": "",
@@ -40,26 +83,15 @@ def fetch_page_signals(url: str) -> dict:
             raw = resp.read(200_000).decode("utf-8", errors="ignore")
         result["fetched"] = True
         result["has_video"] = bool(VIDEO_EVIDENCE.search(raw))
-        title_match = re.search(r"<title[^>]*>([^<]+)</title>", raw, re.I)
-        if title_match:
-            result["title"] = html.unescape(title_match.group(1)).strip()
-        desc_match = re.search(
-            r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']',
-            raw,
-            re.I,
-        )
-        if not desc_match:
-            desc_match = re.search(
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+name=["\']description["\']',
-                raw,
-                re.I,
-            )
-        if desc_match:
-            result["description"] = html.unescape(desc_match.group(1)).strip()
-        h1_match = re.search(r"<h1[^>]*>([^<]+)</h1>", raw, re.I)
-        if h1_match:
-            result["h1"] = re.sub(r"<[^>]+>", "", h1_match.group(1)).strip()
-    except (URLError, TimeoutError, OSError, ValueError) as exc:
+        parser = _SignalParser()
+        try:
+            parser.feed(raw)
+        except Exception:
+            pass
+        result["title"] = html.unescape(parser.title).strip()
+        result["description"] = html.unescape(parser.description).strip()
+        result["h1"] = re.sub(r"\s+", " ", html.unescape(parser.h1)).strip()
+    except (URLError, TimeoutError, OSError, ValueError, http.client.HTTPException, ssl.SSLError) as exc:
         result["error"] = str(exc)[:120]
     return result
 
@@ -68,10 +100,16 @@ def needs_render(page: dict) -> bool:
     """True when the plain fetch produced nothing a copy opener could use."""
     if not page.get("fetched"):
         return True
-    return not (
-        page.get("title") or page.get("description") or page.get("h1")
-        or page.get("has_video")
-    )
+    if page.get("has_video"):
+        return False
+    title = (page.get("title") or "").strip().lower()
+    # A generic shell title ("Home", "Welcome") means the fetch read the
+    # chrome but not the content — render rather than degrade to weak.
+    if title and title not in GENERIC_TITLE_PARTS and len(title) >= 8:
+        return False
+    if (page.get("description") or "").strip() or (page.get("h1") or "").strip():
+        return False
+    return True
 
 
 def _norm_tokens(text: str) -> set[str]:
@@ -106,12 +144,17 @@ def positioning_snippet(company: str, page: dict) -> str:
             low = part.lower()
             if low in GENERIC_TITLE_PARTS:
                 continue
-            if "\u2026" in part or "..." in part:
+            if "…" in part or "..." in part:
                 continue
-            part_norm = re.sub(r"[^a-z0-9]", "", low)
-            if company_norm and (company_norm in part_norm or part_norm in company_norm):
+            part_tokens = _norm_tokens(part)
+            # Token-set overlap only: the old substring check over-rejected
+            # ("art" inside "heart") while the token-pair check catches real
+            # echoes ("Lakeview Homes" in "Lakeview Homes builds...").
+            if len(company_tokens & part_tokens) >= 2:
                 continue
-            if len(company_tokens & _norm_tokens(part)) >= 2:
+            if company_norm and company_norm in re.sub(r"[^a-z0-9]", "", low):
+                # Full-name containment is still an echo even with one token
+                # overlap ("Acme" in "Welcome to Acme").
                 continue
             if not snippet_is_usable(part):
                 continue
@@ -124,6 +167,8 @@ def social_channel(row: dict) -> str:
         return "YouTube"
     if (row.get("Instagram_URL") or "").strip():
         return "Instagram"
+    if (row.get("Facebook_URL") or "").strip():
+        return "Facebook"
     return ""
 
 
@@ -158,25 +203,56 @@ def linkedin_profile_matches(linkedin_url: str, posts: list[dict], company: str)
         return False
     handle_norm = re.sub(r"[^a-z0-9]", "", linkedin.li_handle(linkedin_url))
     author_norm = re.sub(r"[^a-z0-9]", "", (posts[0].get("author_name") or "").lower())
-    haystack = handle_norm + " " + author_norm
-    return any(tok in haystack for tok in distinctive)
+    # Tokenize the haystack instead of substring-matching: "best" must not
+    # match inside "bestwick", and a single-token company ("Smith") must not
+    # claim any "John Smith" in the world.
+    haystack_tokens = set(re.findall(r"[a-z0-9]+", handle_norm + " " + author_norm))
+    hits = sum(1 for tok in distinctive if tok in haystack_tokens)
+    if len(distinctive) == 1:
+        # One token ("Smith", "Best") is not distinctive: require the handle
+        # itself to carry it, not just the author display name.
+        handle_tokens = set(re.findall(r"[a-z0-9]+", handle_norm))
+        return distinctive <= handle_tokens
+    return hits >= min(2, len(distinctive))
+
+
+# Low-signal filler openers never earn the top evidence slot: a thin LI topic
+# must not outrank a strong video signal.
+_LOW_VALUE_TOPIC = re.compile(
+    r"\b(happy monday|happy friday|congratulations|congrats|hiring|job opening|"
+    r"we are hiring|join our team|motivational|good morning|throwback)\b",
+    re.I,
+)
+
+
+def _topic_score(topic: str, post: dict) -> int:
+    score = len(re.findall(r"[a-z0-9]+", topic.lower()))
+    score += min(int(post.get("likes") or 0), 20)
+    score += 2 * min(int(post.get("comments") or 0), 10)
+    return score
 
 
 def linkedin_topic(posts: list[dict], company: str = "") -> str:
     """Best clean topic phrase from the most recent posts (safe for copy)."""
     company_norm = re.sub(r"[^a-z0-9]", "", (company or "").lower())
     company_tokens = _norm_tokens(company)
+    best = ""
+    best_score = -1
     for post in posts:
         topic = (post.get("topic") or "").strip()
         if not snippet_is_usable(topic):
+            continue
+        if _LOW_VALUE_TOPIC.search(topic):
             continue
         topic_norm = re.sub(r"[^a-z0-9]", "", topic.lower())
         if company_norm and company_norm in topic_norm:
             continue
         if len(company_tokens & _norm_tokens(topic)) >= 2:
             continue
-        return topic
-    return ""
+        score = _topic_score(topic, post)
+        if score > best_score:
+            best, best_score = topic, score
+    return best
 
 
 def classify_evidence(row: dict, page: dict, snippet: str, li_topic: str = "") -> str:
