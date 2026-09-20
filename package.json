@@ -6,15 +6,11 @@
   "scripts": {
     "playwright:install": "playwright install chromium",
     "playwright:open": "playwright-cli open",
-    "playwright": "playwright-cli",
-    "jev": "npx tsx --env-file=.env.local jev.ts"
+    "playwright": "playwright-cli"
   },
   "type": "commonjs",
   "devDependencies": {
     "@playwright/cli": "^0.1.18",
     "playwright": "^1.62.1"
-  },
-  "dependencies": {
-    "ai": "^7.0.107"
   }
 }

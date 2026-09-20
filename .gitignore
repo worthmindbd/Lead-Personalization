@@ -53,3 +53,9 @@ credentials.json
 # Generated progress-report artifacts (local; the source of truth is state.json)
 /Report.csv
 /Enrichment-Reports.csv
+
+# Development / Evaluation tools (Vercel Gateway & Jev)
+/jev.ts
+/scripts/*jev*
+/scripts/export_engine_samples.py
+
