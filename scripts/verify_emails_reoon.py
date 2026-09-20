@@ -44,14 +44,15 @@ def verified_output_path(source: Path, override: Path | None = None) -> Path:
 
 
 def api_get(path: str, params: dict, api_key: str, *, retries: int = 3) -> dict:
+    # Reoon authenticates via the `key` query parameter, not an
+    # Authorization header (a header-only change broke every call with
+    # "API key not provided" — verified 2026-09-17: ?key= -> 200,
+    # Bearer -> 400). Keep the key out of logs: callers pass params only.
+    params = {**params, "key": api_key}
     url = f"{API_BASE}/{path}?{urllib.parse.urlencode(params)}"
     last_exc: Exception | None = None
     for attempt in range(1, retries + 1):
-        req = urllib.request.Request(
-            url,
-            method="GET",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
+        req = urllib.request.Request(url, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.loads(resp.read().decode())
@@ -68,13 +69,12 @@ def api_get(path: str, params: dict, api_key: str, *, retries: int = 3) -> dict:
 
 
 def api_post(path: str, body: dict, api_key: str = "") -> tuple[int, dict]:
+    # Same as api_get: Reoon reads the key from the request, not from an
+    # Authorization header.
     url = f"{API_BASE}/{path}"
     payload = dict(body)
+    payload.setdefault("key", api_key or os.environ.get("REOON_API_KEY", "").strip())
     headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    else:
-        payload.setdefault("key", os.environ.get("REOON_API_KEY", "").strip())
     data = json.dumps(payload).encode()
     req = urllib.request.Request(
         url, data=data, method="POST", headers=headers

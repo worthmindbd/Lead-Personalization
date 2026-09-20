@@ -19,6 +19,10 @@ def test_word_count() -> None:
 def test_contains_forbidden() -> None:
     assert contains_forbidden("we offer cheap edits") is True
     assert contains_forbidden("just following up") is True
+    assert contains_forbidden("let's delve into your video strategy") is True
+    assert contains_forbidden("this is a game-changer for your brand") is True
+    assert contains_forbidden("seamlessly integrate with your workflow") is True
+    assert contains_forbidden("in today's fast-paced digital landscape") is True
     assert contains_forbidden("a clean sentence about video") is False
 
 
@@ -76,3 +80,16 @@ def test_qa_flags_fragment_subject() -> None:
     )
     assert result["pass"] is False
     assert "subject_fragment" in result["issues"]
+
+
+def test_sequence_issues_flags_redundant_paragraphs() -> None:
+    from lead_personalization.qa import sequence_issues
+
+    seq = [
+        ("subject one", "Hi,\n\nWe plug in as a white-label finishing bench on your client footage.\n\nWorth a look?"),
+        ("subject two", "Hi,\n\nWe plug in as a white-label finishing bench on all your client footage.\n\nInterested?"),
+        ("subject three", "Hi,\n\nClosing the loop here.\n\nShould I check back?"),
+    ]
+    issues = sequence_issues(seq)
+    assert any(i.startswith("redundant_paragraph:steps_1_and_2") for i in issues)
+

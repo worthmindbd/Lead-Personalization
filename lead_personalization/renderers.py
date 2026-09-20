@@ -50,12 +50,13 @@ class NodePlaywrightRenderer:
 
     def render(self, url: str) -> dict:
         result = {**EMPTY_SIGNALS, "rendered": True}
-        if not url or not url.startswith("http") or not self.available:
+        clean_url = (url or "").strip()
+        if not (clean_url.startswith("http://") or clean_url.startswith("https://")) or not self.available:
             result["error"] = "render unavailable"
             return result
         try:
             proc = subprocess.run(
-                ["node", str(self.script_path), url],
+                ["node", str(self.script_path), clean_url],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_s,

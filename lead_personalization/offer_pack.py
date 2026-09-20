@@ -45,6 +45,7 @@ class OfferPack:
 
 def _validate(pack: OfferPack) -> None:
     from lead_personalization.qa import (
+        AI_SLOP_PHRASES,
         BANNED,
         BRAND_FORBIDDEN,
         HARD_CTA_PATTERNS,
@@ -84,8 +85,9 @@ def _validate(pack: OfferPack) -> None:
     for step in REQUIRED_STEPS:
         if not pack.subject_templates[FALLBACK_SEGMENT].get(step):
             raise OfferPackError(f"subject_templates['{FALLBACK_SEGMENT}'] missing step {step}")
-    # A segment defined in one map but not the other silently degrades that
-    # whole segment to low_fit copy or low_fit subjects — no error anywhere.
+    # segment_copy and subject_templates must agree on every segment key they
+    # define, or the pack has a half-configured segment that either writes
+    # copy with low_fit subjects or writes subjects with low_fit copy.
     seg_copy_segs = set(pack.segment_copy)
     subject_segs = set(pack.subject_templates)
     if seg_copy_segs != subject_segs:
@@ -96,10 +98,11 @@ def _validate(pack: OfferPack) -> None:
             f"disagree (only in segment_copy: {only_copy}, "
             f"only in subject_templates: {only_subjects})"
         )
-    # A banned phrase, hard CTA, or em dash in a pool ships to every lead
+    # A banned phrase, hard CTA, AI slop, or em dash in a pool ships to every lead
     # that draws it. Fail at load, before research spends anything.
     needles = (
         [b.lower() for b in BANNED]
+        + [s.lower() for s in AI_SLOP_PHRASES]
         + [w.strip().lower() for w in BRAND_FORBIDDEN if w.strip()]
         + [t.lower() for t in SPAM_TRIGGERS]
         + [p.lower() for p in HARD_CTA_PATTERNS]

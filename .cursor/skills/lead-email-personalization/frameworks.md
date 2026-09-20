@@ -47,10 +47,15 @@ Never use:
 - Hard CTAs: "Book 15 min", "Are you free Tuesday?", calendar links in email 1
 - Corporate filler: "circle back", "touch base", "deep dive", "synergy", "leverage" (as buzzword)
 - Em dashes (—) in body or subject
+- **AI Slop & Buzzwords (User-Voted AI Tells):**
+  - Verbs: `delve`, `delving`, `unleash`, `supercharge`, `revolutionize`, `spearhead`, `skyrocket`, `harness`, `bolster`
+  - Clichés: `tapestry`, `testament to`, `game-changer`, `transformative`, `seamless`, `cutting-edge`, `bespoke`, `plethora`, `multifaceted`, `paradigm shift`, `beacon of`
+  - Formulaic Openers: `in today's fast-paced`, `in today's digital landscape`, `in today's competitive landscape`, `at its core`, `look no further`, `take your business to the next level`, `unlock your potential`, `stand out from the crowd`, `without further ado`, `needless to say`
 
 Avoid:
 
 - Fake familiarity, excessive exclamation marks
+- Symmetrical AI cadences (e.g. "X is set up, yet Y carries no video. For Z, that is often the gap between a visit and an inquiry.")
 - Statistics not verified in sender docs
 - "We help companies like yours" without specificity
 - Spam-trigger phrasing: `free`, `guarantee`, `act now`, `limited time`, `click here`, `amazing offer`, `risk-free`

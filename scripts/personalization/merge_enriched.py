@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import sys
 from pathlib import Path
 
@@ -64,25 +65,35 @@ def merge_enriched(
     if not fieldnames:
         fieldnames = ["primary_email"]
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(all_rows)
+    tmp_output = output_path.with_suffix(f"{output_path.suffix}.tmp.{os.getpid()}")
+    try:
+        with tmp_output.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(all_rows)
+        os.replace(tmp_output, output_path)
+    except Exception:
+        if tmp_output.exists():
+            try:
+                tmp_output.unlink()
+            except OSError:
+                pass
+        raise
 
     print(f"Merged {len(files)} batch files -> {len(all_rows)} rows")
     print(f"Output: {output_path}")
 
     if manifest_path.exists():
-        # Under the same lock update_batch_status takes: a worker flipping a
-        # batch to "done" between this read and this write would have its status
-        # erased, and the batch would be re-run. Safe today only because
-        # auto_merge is switched off whenever workers > 1 — which is a caller's
-        # promise, not a property of this function.
         with manifest_lock(manifest_path):
-            manifest = fsutil.load_json(manifest_path, {})
-            manifest["merged_output"] = str(output_path.relative_to(ROOT))
-            manifest["merged_row_count"] = len(all_rows)
-            fsutil.atomic_write_json(manifest_path, manifest)
+            manifest = fsutil.load_json(manifest_path, None)
+            if isinstance(manifest, dict):
+                try:
+                    rel_out = str(output_path.resolve().relative_to(ROOT.resolve()))
+                except (ValueError, OSError):
+                    rel_out = str(output_path)
+                manifest["merged_output"] = rel_out
+                manifest["merged_row_count"] = len(all_rows)
+                fsutil.atomic_write_json(manifest_path, manifest)
 
     return len(all_rows)
 

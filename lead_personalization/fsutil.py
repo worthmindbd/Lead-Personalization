@@ -31,6 +31,8 @@ def atomic_write_text(path: Path, text: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp_name, path)
     except BaseException:
         try:
@@ -63,7 +65,10 @@ def file_lock(path: Path):
             yield
         finally:
             if fcntl is not None:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
+                try:
+                    fcntl.flock(lock_file, fcntl.LOCK_UN)
+                except OSError:
+                    pass
 
 
 def load_json(path: Path, default):

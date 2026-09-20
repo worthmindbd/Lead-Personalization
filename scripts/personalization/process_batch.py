@@ -121,6 +121,9 @@ def process_batch(
         manifest.get("prefix") or artifacts.prefix_from_manifest_name(manifest_path)
     )
 
+    if not source.is_file():
+        raise SystemExit(f"Source file not found: {source}")
+
     with source.open(newline="", encoding="utf-8-sig") as handle:
         all_rows = list(csv.DictReader(handle))
 
@@ -186,8 +189,15 @@ def process_batch(
             # row_index column can be absent, and research_lead would default
             # every such lead to 0.
             item["row_index"] = row_index
-            seq, variant = generate_sequence(row, item, offer_pack)
-            seq = fix_sequence(seq, row, item, offer_pack)
+            try:
+                seq, variant = generate_sequence(row, item, offer_pack)
+                seq = fix_sequence(seq, row, item, offer_pack)
+            except Exception as exc:  # noqa: BLE001 — preserve sequence generation
+                fallback_item = fallback_research_item(row, f"CopyGenError: {exc}")
+                fallback_item["row_index"] = row_index
+                seq, variant = generate_sequence(row, fallback_item, offer_pack)
+                seq = fix_sequence(seq, row, fallback_item, offer_pack)
+                item = fallback_item
             item["copy_variant"] = variant
             research_out.append(item)
             # Keyed by row_index, not email: two rows can share an address (or have

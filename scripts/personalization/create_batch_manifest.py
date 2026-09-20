@@ -25,8 +25,16 @@ def create_manifest(
     manifest_path: Path = DEFAULT_MANIFEST,
     batch_size: int = BATCH_SIZE,
 ) -> dict:
-    with source.open(newline="", encoding="utf-8") as handle:
+    if batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {batch_size}")
+    if not source.is_file():
+        raise FileNotFoundError(f"Source file not found: {source}")
+
+    with source.open(newline="", encoding="utf-8-sig") as handle:
         rows = list(csv.DictReader(handle))
+
+    if not rows:
+        print(f"Warning: Source file {source} contains no data rows.", file=sys.stderr)
 
     by_segment: dict[str, list[int]] = defaultdict(list)
     for i, row in enumerate(rows):
@@ -43,20 +51,21 @@ def create_manifest(
                 ordered_indices.append(queue.pop(0))
 
     batches = []
-    for batch_num, start in enumerate(range(0, len(ordered_indices), batch_size), start=1):
-        chunk = ordered_indices[start : start + batch_size]
-        segments_in_batch = {rows[i].get("aevora_segment", "low_fit") for i in chunk}
-        batches.append(
-            {
-                "id": f"{batch_num:03d}",
-                "rows": chunk,
-                "row_start": chunk[0],
-                "row_end": chunk[-1],
-                "count": len(chunk),
-                "segments": sorted(segments_in_batch),
-                "status": "pending",
-            }
-        )
+    if ordered_indices:
+        for batch_num, start in enumerate(range(0, len(ordered_indices), batch_size), start=1):
+            chunk = ordered_indices[start : start + batch_size]
+            segments_in_batch = {rows[i].get("aevora_segment", "low_fit") for i in chunk}
+            batches.append(
+                {
+                    "id": f"{batch_num:03d}",
+                    "rows": chunk,
+                    "row_start": chunk[0],
+                    "row_end": chunk[-1],
+                    "count": len(chunk),
+                    "segments": sorted(segments_in_batch),
+                    "status": "pending",
+                }
+            )
 
     # Recorded, not just implied by the filename: every downstream artifact
     # name is built from it, and a manifest that has been moved or renamed

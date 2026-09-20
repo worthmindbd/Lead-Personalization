@@ -16,11 +16,21 @@ PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
 
 
+def _parse_bool(val: str | None, default: bool) -> bool:
+    if val is None:
+        return default
+    return val.strip().lower() not in ("0", "false", "no", "off")
+
+
 def load_dotenv(path: Path) -> None:
     """Populate os.environ from a .env file (does not overwrite existing keys)."""
     if not path.is_file():
         return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw_line in content.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -83,14 +93,25 @@ class Config:
 
     @classmethod
     def from_env(cls, root: Path | None = None, **overrides) -> "Config":
-        """Build a Config from environment variables (loading .env first)."""
+        """Build a Config from environment variables (loading .env and .env.local first)."""
         base = Path(root) if root else REPO_ROOT
         load_dotenv(base / ".env")
+        load_dotenv(base / ".env.local")
         env = os.environ
         try:
             reoon_daily_limit = int(env.get("REOON_DAILY_LIMIT", "500") or "500")
         except ValueError:
             reoon_daily_limit = 500
+
+        try:
+            render_timeout_s = int(env.get("RENDER_TIMEOUT_S", "45") or "45")
+        except ValueError:
+            render_timeout_s = 45
+
+        try:
+            linkedin_max_posts = int(env.get("LINKEDIN_MAX_POSTS", "2") or "2")
+        except ValueError:
+            linkedin_max_posts = 2
 
         raw_primary = env.get("APIFY_API_TOKEN", "").strip()
         raw_fallbacks = (
@@ -107,6 +128,10 @@ class Config:
 
         kwargs = dict(
             root=base,
+            render_fallback=_parse_bool(env.get("RENDER_FALLBACK"), True),
+            render_timeout_s=render_timeout_s,
+            linkedin_enrich=_parse_bool(env.get("LINKEDIN_ENRICH"), True),
+            linkedin_max_posts=linkedin_max_posts,
             apify_token=apify_token_val,
             reoon_api_key=env.get("REOON_API_KEY", "").strip(),
             reoon_daily_limit=reoon_daily_limit,

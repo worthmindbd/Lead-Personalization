@@ -1,0 +1,2 @@
+- Always check the Google Sheet as source of truth and continue working on pending jobs, adding new entries if new uploaded files are found. Confidence: 0.95
+- Strictly limit Reoon verifier usage to the free 500 daily credits only — use up to 500 per day and wait for reset rather than exceeding. Confidence: 0.95

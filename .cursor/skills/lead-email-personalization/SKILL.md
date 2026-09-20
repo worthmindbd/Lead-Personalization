@@ -141,7 +141,7 @@ Follow [frameworks.md](frameworks.md). Segment playbook: [segments.md](segments.
 | Banned phrases | See frameworks.md |
 | CTA | Soft, low-friction (sample offer, example, or short call) |
 | Subject | ≤60 chars; lowercase; signal/city-specific; no spam words (see `scripts/personalization/subjects.py`) |
-| AI tells | No em dashes |
+| AI tells | No em dashes, no AI slop words (delve, tapestry, game-changer, etc. - see frameworks.md) |
 | Company name | Never in body or greeting (company tier) |
 | Truncation | No `...` artifacts in subject or body |
 | Sequence | No duplicate paragraphs or subjects across the 3 steps (`sequence_issues`) |

@@ -21,9 +21,14 @@ def manifest_lock(path: Path):
 
 def update_batch_status(manifest_path: Path, batch_id: str, status: str) -> None:
     with manifest_lock(manifest_path):
-        manifest = fsutil.load_json(manifest_path, {})
+        manifest = fsutil.load_json(manifest_path, None)
+        if not isinstance(manifest, dict) or "batches" not in manifest:
+            return
+        found = False
         for batch in manifest.get("batches", []):
             if batch.get("id") == batch_id:
                 batch["status"] = status
+                found = True
                 break
-        fsutil.atomic_write_json(manifest_path, manifest)
+        if found:
+            fsutil.atomic_write_json(manifest_path, manifest)

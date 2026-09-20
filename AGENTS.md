@@ -99,7 +99,7 @@ Evidence priority for the opener: `linkedin_posts` → `site_video` → `social_
 - Word count: ≤100 words
 - First line: specific signal; no small talk
 - Subject: ≤60 chars; lowercase; signal/city-specific; no spam words (`subjects.py`)
-- AI tells: no em dashes
+- AI tells: no em dashes, zero AI slop / buzzwords (delve, tapestry, game-changer, seamless, cutting-edge, fast-paced, etc.)
 - Company name: never in body or greeting (company tier)
 - Truncation: no `...` artifacts in subject or body
 - Sequence: no duplicate paragraphs or subjects across the 3 steps

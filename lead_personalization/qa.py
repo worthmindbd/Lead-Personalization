@@ -26,6 +26,60 @@ BANNED = [
     "—",
 ]
 
+# User-voted AI slop phrases & telltale buzzwords that scream machine generation
+AI_SLOP_PHRASES = [
+    # Verbs and action buzzwords
+    "delve",
+    "delving",
+    "unleash",
+    "unleashing",
+    "supercharge",
+    "supercharging",
+    "revolutionize",
+    "revolutionizing",
+    "spearhead",
+    "skyrocket",
+    "harnessing",
+    "bolstering",
+    "fostering",
+    # Flowery nouns and adjectives
+    "tapestry",
+    "testament to",
+    "game-changer",
+    "game changer",
+    "transformative",
+    "seamless",
+    "seamlessly",
+    "cutting-edge",
+    "cutting edge",
+    "bespoke",
+    "paramount",
+    "multifaceted",
+    "plethora",
+    "paradigm shift",
+    "synergy",
+    "synergistic",
+    "beacon of",
+    # Formulaic AI email openers and clichés
+    "in today's fast-paced",
+    "in today's fast paced",
+    "in today's digital landscape",
+    "in today's competitive landscape",
+    "at its core",
+    "look no further",
+    "take your business to the next level",
+    "take your brand to the next level",
+    "unlock your potential",
+    "stand out from the crowd",
+    "it is important to note",
+    "it's important to note",
+    "it is important to remember",
+    "it's important to remember",
+    "without further ado",
+    "needless to say",
+    "navigating the complexities",
+]
+
 BRAND_FORBIDDEN = [
     "cheap",
     "affordable",
@@ -112,10 +166,11 @@ def word_count(text: str) -> int:
 
 
 def contains_forbidden(text: str) -> bool:
-    """True when text carries banned, brand-forbidden, or spam-trigger content."""
+    """True when text carries banned, brand-forbidden, spam-trigger, or AI slop content."""
     low = (text or "").lower()
     return (
         any(b in low for b in BANNED)
+        or any(s in low for s in AI_SLOP_PHRASES)
         or any(w in low for w in BRAND_FORBIDDEN)
         or any(t in low for t in SPAM_TRIGGERS)
     )
@@ -186,6 +241,9 @@ def qa(subject: str, body: str, company: str = "") -> dict:
     for banned in BANNED:
         if banned in low:
             issues.append(f"banned:{banned}")
+    for slop in AI_SLOP_PHRASES:
+        if slop in low:
+            issues.append(f"ai_slop:{slop}")
     for word in BRAND_FORBIDDEN:
         if word in low:
             issues.append(f"brand_forbidden:{word.strip()}")
@@ -208,9 +266,10 @@ def qa_sequence(sequence: list[tuple[str, str]], company: str = "") -> list[dict
 
 
 def sequence_issues(sequence: list[tuple[str, str]]) -> list[str]:
-    """Cross-step checks: no duplicate paragraphs or subjects across the sequence."""
+    """Cross-step checks: no duplicate paragraphs, redundant paragraphs, or subjects across the sequence."""
     issues: list[str] = []
     seen: dict[str, int] = {}
+    step_paras: list[tuple[int, set[str]]] = []
     for step, (_, body) in enumerate(sequence, start=1):
         for paragraph in body.split("\n\n")[1:]:
             key = re.sub(r"\W+", " ", paragraph.lower()).strip()
@@ -220,7 +279,16 @@ def sequence_issues(sequence: list[tuple[str, str]]) -> list[str]:
                 issues.append(f"duplicate_paragraph:steps_{seen[key]}_and_{step}")
             else:
                 seen.setdefault(key, step)
+            words = set(re.findall(r"\b[a-z]{3,}\b", paragraph.lower()))
+            if len(words) >= 6:
+                for prev_step, prev_words in step_paras:
+                    if prev_step != step:
+                        overlap = len(words & prev_words) / max(len(words), len(prev_words))
+                        if overlap >= 0.75:
+                            issues.append(f"redundant_paragraph:steps_{prev_step}_and_{step}")
+                step_paras.append((step, words))
     subjects = [subject.lower().strip() for subject, _ in sequence]
     if len(set(subjects)) < len(subjects):
         issues.append("duplicate_subject")
     return issues
+

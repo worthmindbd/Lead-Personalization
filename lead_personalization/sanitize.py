@@ -10,11 +10,16 @@ from __future__ import annotations
 
 import re
 
-from lead_personalization.qa import BRAND_FORBIDDEN, SPAM_TRIGGERS, contains_forbidden
+from lead_personalization.qa import (
+    AI_SLOP_PHRASES,
+    BRAND_FORBIDDEN,
+    SPAM_TRIGGERS,
+    contains_forbidden,
+)
 
 # Longer phrases first so partial strips do not leave junk.
 _FORBIDDEN = sorted(
-    {w.strip() for w in BRAND_FORBIDDEN + SPAM_TRIGGERS if w.strip()},
+    {w.strip() for w in BRAND_FORBIDDEN + SPAM_TRIGGERS + AI_SLOP_PHRASES if w.strip()},
     key=len,
     reverse=True,
 )

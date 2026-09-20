@@ -13,23 +13,46 @@ const { chromium } = require('playwright');
 const VIDEO_EVIDENCE =
   /youtube\.com\/embed|youtube-nocookie\.com|player\.vimeo\.com|fast\.wistia|<video\b|\.mp4\b|loom\.com\/embed/i;
 
-(async () => {
-  const url = process.argv[2];
-  const timeout = parseInt(process.argv[3] || '20000', 10);
-  const out = {
-    title: '',
-    description: '',
-    h1: '',
-    has_video: false,
-    fetched: false,
-    error: '',
-  };
+const out = {
+  title: '',
+  description: '',
+  h1: '',
+  has_video: false,
+  fetched: false,
+  error: '',
+};
 
-  if (!url || !/^https?:\/\//i.test(url)) {
+function exitWithJson(data) {
+  try {
+    process.stdout.write(JSON.stringify(data));
+  } catch (_) {
+    process.stdout.write('{"title":"","description":"","h1":"","has_video":false,"fetched":false,"error":"serialization failure"}');
+  }
+}
+
+process.on('uncaughtException', (err) => {
+  out.error = String((err && err.message) || err).slice(0, 120);
+  exitWithJson(out);
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason) => {
+  out.error = String((reason && (reason.message || reason)) || 'unhandled rejection').slice(0, 120);
+  exitWithJson(out);
+  process.exit(0);
+});
+
+(async () => {
+  const rawUrl = (process.argv[2] || '').trim();
+  const parsedTimeout = parseInt(process.argv[3] || '20000', 10);
+  const timeout = Math.max(1000, Math.min(isNaN(parsedTimeout) ? 20000 : parsedTimeout, 60000));
+
+  if (!rawUrl || !/^https?:\/\//i.test(rawUrl)) {
     out.error = 'invalid url';
-    process.stdout.write(JSON.stringify(out));
+    exitWithJson(out);
     return;
   }
+  const url = rawUrl;
 
   let browser;
   try {
@@ -67,5 +90,5 @@ const VIDEO_EVIDENCE =
     if (browser) await browser.close().catch(() => {});
   }
 
-  process.stdout.write(JSON.stringify(out));
+  exitWithJson(out);
 })();

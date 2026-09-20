@@ -15,6 +15,7 @@ import ssl
 import time
 from html.parser import HTMLParser
 from urllib.error import URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from lead_personalization import linkedin
@@ -23,6 +24,10 @@ from lead_personalization.renderers import VIDEO_EVIDENCE, PageRenderer
 
 USER_AGENT = "Mozilla/5.0 (compatible; AevoraLeadResearch/1.0)"
 FETCH_TIMEOUT = 12
+
+BLOCKED_HOSTS = {
+    "localhost", "127.0.0.1", "0.0.0.0", "::1", "169.254.169.254", "metadata.google.internal",
+}
 
 GENERIC_TITLE_PARTS = {
     "home", "homepage", "welcome", "about", "about us", "contact", "contact us",
@@ -75,10 +80,20 @@ def fetch_page_signals(url: str) -> dict:
         "title": "", "description": "", "h1": "",
         "has_video": False, "fetched": False, "error": "",
     }
-    if not url or not url.startswith("http"):
+    clean_url = (url or "").strip()
+    if not (clean_url.startswith("http://") or clean_url.startswith("https://")):
         return result
     try:
-        req = Request(url, headers={"User-Agent": USER_AGENT})
+        parsed = urlparse(clean_url)
+        host = (parsed.hostname or "").lower()
+        if not host or host in BLOCKED_HOSTS or host.endswith(".local") or host.endswith(".internal"):
+            result["error"] = "blocked host"
+            return result
+    except Exception:
+        result["error"] = "invalid url"
+        return result
+    try:
+        req = Request(clean_url, headers={"User-Agent": USER_AGENT})
         with urlopen(req, timeout=FETCH_TIMEOUT) as resp:
             raw = resp.read(200_000).decode("utf-8", errors="ignore")
         result["fetched"] = True
