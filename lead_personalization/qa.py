@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 
 from lead_personalization.segments import is_plausible_first_name
 
@@ -207,17 +208,102 @@ def greeting_line(body: str) -> str:
     return (body.split("\n\n")[0] if body else "").strip()
 
 
-def greeting_is_valid(body: str) -> bool:
+def greeting_is_valid(body: str, email: str = "") -> bool:
     line = greeting_line(body)
     if line == "Hi,":
         return True
     match = re.match(r"^Hi (.+),$", line)
     if not match:
         return False
-    return is_plausible_first_name(match.group(1))
+    return is_plausible_first_name(match.group(1), email)
 
 
-def qa(subject: str, body: str, company: str = "") -> dict:
+def company_name_in_subject(subject: str, company: str) -> bool:
+    """True when the subject carries the recipient's own business name.
+
+    The body is already checked for this (company name never appears in copy,
+    per the dual-tier contract), but the subject was never checked and has
+    shipped real cases: "genrietta arakelova, d.d.s", "at luxe dental dallas".
+    """
+    company_clean = (company or "").strip()
+    subject_low = (subject or "").lower()
+    if len(company_clean) < 4 or company_clean.lower() not in subject_low:
+        return False
+    # "at simply dentistry" is the company. "your trusted paradise valley" is
+    # the company's own tagline pasted back. Compare on alnum only so a stray
+    # period in "d.d.s" cannot hide a match.
+    return re.sub(r"[^a-z0-9]", "", company_clean.lower()) in re.sub(r"[^a-z0-9]", "", subject_low)
+
+
+# Shapes that mean the hook came from a phone number, a street address, a URL,
+# a CMS error page, or raw marketing copy rather than from a readable phrase.
+_JUNK_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("phone", r"\(?\b\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
+    ("url", r"\b(?:https?://|www\.|\.com\b|\.net\b|\.org\b|\.io\b)"),
+    ("email", r"\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b"),
+    ("address", r"\b\d{2,6}\s+[a-z]+\s+(?:blvd|blvd\.|st|street|ave|avenue|rd|road|dr|drive|ln|lane|way|suite|ste|hwy|pkwy|ct|court)\b"),
+    ("zip", r"\b\d{5}(?:-\d{4})?\b"),
+    ("error_page", r"\b(?:wordpress|404|403|500|error|access denied|not found|page not found|server error|index of)\b"),
+    ("business_suffix", r"\b(?:llc|inc|corp|corporation|ltd|plc|dba)\b"),
+    ("credential", r"\b(?:d\.?d\.?s\.?|d\.?m\.?d\.?|m\.?d\.?|ph\.?d\.?|r\.?n\.?|do|np|pa)\b"),
+    ("price", r"\$\s?\d"),
+)
+
+# Prospect-side phrases that are grammatical but make a poor subject line
+# because they are the business talking about itself.
+_META_MARKER_PATTERNS = (
+    "dentist near",
+    "looking for a",
+    "your trusted",
+    "do you need",
+    "call us",
+    "contact us",
+    "schedule",
+    "insurance accepted",
+    "we serve",
+    "call today",
+    "free consultation",
+    "book online",
+    "book now",
+    "book today",
+    "order online",
+    "buy now",
+    "sign up",
+    "get a quote",
+    "request a quote",
+    "services we",
+    "hours of operation",
+    "open mon",
+    "located in",
+    "proudly serving",
+    "family owned",
+    "since 19",
+)
+
+
+def junk_hook_reasons(subject: str) -> list[str]:
+    """Return the reasons a subject reads as unfiltered data, not a phrase.
+
+    The subject hook falls back to the raw GMB Meta_Description, which is
+    unfiltered marketing copy. That has shipped phone numbers, street
+    addresses, WordPress error pages, and a company name straight into the
+    subject line of live sends. Every hit here is a hard fail.
+    """
+    low = (subject or "").lower()
+    if not low:
+        return []
+    reasons = [name for name, pattern in _JUNK_SUBJECT_PATTERNS if re.search(pattern, low)]
+    if any(marker in low for marker in _META_MARKER_PATTERNS):
+        reasons.append("marketing_copy")
+    return reasons
+
+
+def company_name_in_body_check(body: str, company: str) -> bool:
+    company_clean = (company or "").strip()
+    return len(company_clean) >= 4 and company_clean.lower() in (body or "").lower()
+
+
+def qa(subject: str, body: str, company: str = "", email: str = "") -> dict:
     issues = []
     wc = word_count(body)
     if wc > 100:
@@ -228,14 +314,18 @@ def qa(subject: str, body: str, company: str = "") -> dict:
         issues.append("subject_spam_or_generic")
     if subject_is_fragment(subject):
         issues.append("subject_fragment")
-    if not greeting_is_valid(body):
+    if not greeting_is_valid(body, email):
         issues.append("bad_greeting")
+    if company_name_in_subject(subject, company):
+        issues.append("company_name_in_subject")
+    for junk in junk_hook_reasons(subject):
+        issues.append(f"subject_junk:{junk}")
     for mark in ELLIPSIS_MARKS:
         if mark in subject or mark in body:
             issues.append("truncation_artifact")
             break
     company_clean = (company or "").strip()
-    if len(company_clean) >= 4 and company_clean.lower() in body.lower():
+    if company_name_in_body_check(body, company_clean):
         issues.append("company_name_in_body")
     low = (subject + " " + body).lower()
     for banned in BANNED:
@@ -261,8 +351,63 @@ def qa(subject: str, body: str, company: str = "") -> dict:
     }
 
 
-def qa_sequence(sequence: list[tuple[str, str]], company: str = "") -> list[dict]:
-    return [qa(subject, body, company) for subject, body in sequence]
+def campaign_repetition(sequences: list[list[tuple[str, str]]]) -> dict:
+    """Measure how much copy is shared across a whole campaign.
+
+    ``sequence_issues`` only ever compares one lead's three emails to each other,
+    so a campaign can pass every per-lead check while thousands of leads receive
+    the same handful of subjects and breakups. That is exactly what happened: a
+    2-entry closer pool meant every email 3 in the list was one of four texts,
+    and nothing reported it.
+
+    Returns per-step subject concentration and the most-repeated bodies, so a
+    review can see pool exhaustion instead of inferring it from a reply rate.
+    """
+    total = len(sequences)
+    if not total:
+        return {"leads": 0, "subjects": {}, "bodies": [], "repeat_rate": 0.0}
+
+    subjects_by_step: dict[int, list[str]] = {}
+    for seq in sequences:
+        for step, (subject, _) in enumerate(seq, start=1):
+            subjects_by_step.setdefault(step, []).append(subject.strip().lower())
+
+    subjects: dict[str, dict] = {}
+    for step, values in sorted(subjects_by_step.items()):
+        counts = Counter(values)
+        top, top_n = (counts.most_common(1)[0] if counts else ("", 0))
+        subjects[f"step_{step}"] = {
+            "sent": len(values),
+            "distinct": len(counts),
+            "top_subject": top,
+            "top_count": top_n,
+            "top_share": round(top_n / len(values), 4) if values else 0.0,
+        }
+
+    # Paragraph-level bodies, ignoring the greeting, which is a fixed shape.
+    bodies: Counter[str] = Counter()
+    for seq in sequences:
+        for _, body in seq:
+            for paragraph in body.split("\n\n")[1:]:
+                key = re.sub(r"\W+", " ", paragraph.lower()).strip()
+                if len(key.split()) >= 4:
+                    bodies[key] += 1
+    total_leads = total
+    return {
+        "leads": total_leads,
+        "subjects": subjects,
+        "bodies": [
+            {"text": text[:120], "count": count, "share": round(count / total_leads, 4)}
+            for text, count in bodies.most_common(10)
+        ],
+        "repeat_rate": round(
+            sum(count for _, count in bodies.most_common()) / max(1, sum(bodies.values())), 4
+        ),
+    }
+
+
+def qa_sequence(sequence: list[tuple[str, str]], company: str = "", email: str = "") -> list[dict]:
+    return [qa(subject, body, company, email) for subject, body in sequence]
 
 
 def sequence_issues(sequence: list[tuple[str, str]]) -> list[str]:

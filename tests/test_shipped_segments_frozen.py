@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from lead_personalization.segments import segment_for_category
+from lead_personalization.segments import canonical_segment, segment_for_category
 
 ROOT = Path(__file__).resolve().parents[1]
 ENRICHED_GLOB = "leads/pipeline/*/*-enriched.csv"
@@ -49,7 +49,10 @@ def _shipped_segments() -> dict[str, set[str]]:
                 cat = (row.get("First_category") or "").strip()
                 seg = (row.get("aevora_segment") or "").strip()
                 if cat and seg:
-                    shipped[cat].add(seg)
+                    # Rows on disk still carry the pre-rename "low_fit" key.
+                    # Canonicalizing keeps the freeze test about real
+                    # re-angling rather than about a naming cleanup.
+                    shipped[cat].add(canonical_segment(seg))
     return dict(shipped)
 
 
@@ -59,7 +62,7 @@ def test_no_shipped_category_changes_segment():
         pytest.skip("no enriched CSVs under leads/pipeline/")
     moved = sorted(
         cat for cat, segs in shipped.items()
-        if segment_for_category(cat) not in segs
+        if canonical_segment(segment_for_category(cat)) not in segs
         and cat not in DELIBERATE_MIGRATIONS
     )
     assert not moved, (

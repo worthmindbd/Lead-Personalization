@@ -12,9 +12,11 @@ import re
 
 from lead_personalization.qa import (  # noqa: F401 — FUNCTION_WORDS re-exported below
     FUNCTION_WORDS,
+    junk_hook_reasons,
     subject_has_spam,
     subject_is_fragment,
 )
+from lead_personalization.segments import canonical_segment
 
 # The step whose subject should lead with the lead's own research hook. The
 # first touch is the one that has to earn an open from a cold inbox, so a
@@ -63,6 +65,20 @@ def _trim_to_content_word(text: str, max_len: int = 28, min_words: int = 2) -> s
     return _clean(" ".join(out), max_len).lower()
 
 
+def _usable_hook(hook: str) -> str:
+    """Reject a hook that reads as unfiltered data, not a phrase.
+
+    The raw GMB Meta_Description is the last hook source and it is unfiltered:
+    it has shipped "wordpress error", "call (561) 368-0770", "2401 pga blvd.,
+    suite 270" and the company's own name as subject lines. Rejecting here means
+    the caller falls through to a literal template instead.
+    """
+    hook = (hook or "").strip()
+    if not hook or junk_hook_reasons(hook):
+        return ""
+    return hook
+
+
 def _hook_from_meta(meta: str) -> str:
     if not meta:
         return ""
@@ -73,7 +89,7 @@ def _hook_from_meta(meta: str) -> str:
             meta = meta[len(prefix) :]
     # First clause is often the best anchor; trim it to a coherent phrase.
     clause = re.split(r"[.;]", meta)[0].strip()
-    return _trim_to_content_word(clause)
+    return _usable_hook(_trim_to_content_word(clause))
 
 
 def _hook_from_signal(signal: str) -> str:
@@ -83,22 +99,10 @@ def _hook_from_signal(signal: str) -> str:
     # of this contract (tests pin the round trip).
     m = re.search(r'recent LinkedIn post: "(.+?)"', signal, re.I)
     if m:
-        return _trim_to_content_word(m.group(1))
+        return _usable_hook(_trim_to_content_word(m.group(1)))
     m = re.search(r'site positioning: "(.+?)"', signal, re.I)
     if m:
-        return _trim_to_content_word(m.group(1))
-    m = re.search(r"leads with (.+?) from ", signal, re.I)
-    if m:
-        hook = m.group(1).strip()
-        if "|" in hook:
-            parts = [p.strip() for p in hook.split("|") if p.strip()]
-            hook = parts[-1] if parts else hook
-        hook = re.sub(r"^(Home|About|Contact)\s*\|\s*", "", hook, flags=re.I)
-        if hook.lower() not in {"home", "about", "contact", "welcome"}:
-            return _trim_to_content_word(hook)
-    m = re.search(r"lists (.+?) and", signal, re.I)
-    if m:
-        return _trim_to_content_word(m.group(1))
+        return _usable_hook(_trim_to_content_word(m.group(1)))
     return ""
 
 
@@ -175,8 +179,8 @@ def build_subject(
         hook = _trim_to_content_word(hook)
     hook = hook or _hook_from_signal(signal) or _hook_from_meta(meta)
 
-    fallback = subject_templates["low_fit"]
-    templates = subject_templates.get(segment, fallback).get(step) or fallback.get(step)
+    fallback = subject_templates["general"]
+    templates = subject_templates.get(canonical_segment(segment), fallback).get(step) or fallback.get(step)
     if not templates:
         raise ValueError(f"no subject templates for segment={segment!r} step={step}")
     templates = _order_templates(list(templates), has_hook=bool(hook), key=key, step=step)
@@ -201,19 +205,24 @@ def build_subject(
         # Word-boundary trim: a hook is prospect-supplied text and can be long,
         # and a subject cut mid-word reads like a broken send.
         subj = _clean(subj, 50)
-        # Reject fragments: a hook that lands on a function word ("a wide
-        # selection of") is a broken send too. Literal templates never end on a
-        # function word, so a clean fallback candidate always remains.
-        if subj and not subject_has_spam(subj) and not subject_is_fragment(subj):
+        # Reject fragments ("a wide selection of") and unfiltered data (a phone
+        # number, a street address, a CMS error page). Literal templates never
+        # trip either, so a clean fallback candidate always remains.
+        if (
+            subj
+            and not subject_has_spam(subj)
+            and not subject_is_fragment(subj)
+            and not junk_hook_reasons(subj)
+        ):
             used_subjects.add(subj)
             return subj
 
     safe = _clean(hook or category or "your project clips", 40).lower()
-    if subject_is_fragment(safe) or subject_has_spam(safe):
+    if subject_is_fragment(safe) or subject_has_spam(safe) or junk_hook_reasons(safe):
         # The raw hook landed on a function word or carries a spam trigger;
         # prefer the category or a generic phrase over a broken send.
         safe = _clean(category or "your project clips", 40).lower()
-    if subject_has_spam(safe) or subject_is_fragment(safe):
+    if subject_has_spam(safe) or subject_is_fragment(safe) or junk_hook_reasons(safe):
         safe = "video workflow question"
     used_subjects.add(safe)
     return safe[:50]

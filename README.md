@@ -22,9 +22,11 @@ A lead is only ever removed for a reason that makes the email itself worthless:
 
 Nothing else. Permanently-closed listings, unusual industries, competitors,
 thin websites — all kept. `aevora_segment` picks *which* angle a lead's copy
-takes, including the `low_fit` fallback for unmapped categories; it never
-decides whether a lead is worth writing to. `tests/test_no_lead_is_dropped.py`
-counts rows out of a batch so that stays true.
+takes, including the `general` fallback for unmapped categories; it never
+decides whether a lead is worth writing to. Every industry needs finished
+video, so there is no "bad" category — `general` is a full copy pool, not a
+demotion. `tests/test_no_lead_is_dropped.py` counts rows out of a batch so
+that stays true, and `tests/test_copy_quality.py` pins the segment name.
 
 ## Setup (one-time)
 

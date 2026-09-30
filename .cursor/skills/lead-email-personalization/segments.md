@@ -17,7 +17,7 @@ Maps `First_category` from mixed CSVs to Aevora outreach strategy. Used with [`s
 | `luxury_retail` | Pillar 2/4 | medium | Product crave pacing, DTC ad variants |
 | `marine_auto_lifestyle` | Mixed | low | Luxury showcase only when positioning is high-ticket |
 | `hospitality_events` | Pillar 1 | low | Event recap and brand film finishing |
-| `low_fit` | — | skip | Deprioritize; minimal authority-only if user overrides |
+| `general` | — | general | Catch-all for categories with no specific angle yet; a full copy pool, never a demotion |
 
 ## Dual-tier greetings
 
@@ -75,17 +75,18 @@ Maps `First_category` from mixed CSVs to Aevora outreach strategy. Used with [`s
 - **Value lens:** save time (event recap finishing from supplied footage)
 - **Avoid:** hard sell on unrelated pillars
 
-### low_fit
+### general
 - **Check:** website only
 - **Value lens:** save time at most
 - **Avoid:** hard sell
 - **Not a demotion:** the fallback for unmapped categories, with its own copy
   pool and subject templates like every other segment. These leads are
-  personalized and sent like any other.
+  personalized and sent like any other. Every industry needs finished video,
+  so no category is scored, ranked, or written off.
 
 ## Category mapping
 
-All 249 `First_category` values map via `scripts/personalization/segments.py` → `CATEGORY_TO_SEGMENT`. Unmapped categories default to `low_fit`.
+All 249 `First_category` values map via `lead_personalization/segments.py` → `CATEGORY_TO_SEGMENT`. Unmapped categories default to `general`.
 
 Top categories by lead count in `all-leads-with-email.csv`:
 
@@ -115,4 +116,4 @@ Canonical 3-email example (GMB, company tier): [examples.md](examples.md#canonic
 - **luxury_retail:** "Luxury retail converts when product video creates crave, not catalog slideshows."
 - **marine_auto_lifestyle:** "High-ticket inventory sells when showcase video matches the price point."
 - **hospitality_events:** "Event brands extend reach when recap video is finished for social, not left as raw clips."
-- **low_fit:** Use minimal, honest role + company context only; note thin fit in `research_notes`.
+- **general:** Use minimal, honest role + company context only; note thin fit in `research_notes`.

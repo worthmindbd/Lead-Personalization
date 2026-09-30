@@ -33,6 +33,7 @@ from lead_personalization.pipeline import (  # noqa: E402,F401
 from lead_personalization.segments import (  # noqa: E402,F401
     BUSINESS_NAME_MARKERS,
     CATEGORY_TO_SEGMENT,
+    GENERAL_SEGMENT,
     GENERIC_EMAIL_PREFIXES,
     resolve_outreach_tier as outreach_tier,
     segment_for_category,
@@ -117,7 +118,7 @@ def normalize_leads(
         preview = ", ".join(unmapped[:40])
         more = f" (+{len(unmapped) - 40} more)" if len(unmapped) > 40 else ""
         print(
-            f"Unmapped categories -> low_fit ({len(unmapped)}): {preview}{more}\n"
+            f"Unmapped categories -> {GENERAL_SEGMENT} ({len(unmapped)}): {preview}{more}\n"
             "  Add them to lead_personalization/segments.py CATEGORY_TO_SEGMENT "
             "to improve targeting."
         )

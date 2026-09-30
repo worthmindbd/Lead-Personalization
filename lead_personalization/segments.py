@@ -85,15 +85,32 @@ MACRO_SEGMENTS = {
         "forbidden_angles": ["SaaS demos", "medical content"],
         "signal_sources": ["event gallery", "venue photos", "social highlights"],
     },
-    "low_fit": {
-        "label": "Low Fit",
+    # Every industry needs finished video, so there is no "bad" segment. This
+    # is the catch-all for categories with no specific angle yet: it gets the
+    # same full solution pool every other segment gets, at a generic level.
+    "general": {
+        "label": "General Business",
         "pillar": "—",
-        "angle": "Minimal authority-only if overridden; otherwise deprioritize",
+        "angle": "Generic finished-video angle for categories without a specific angle yet",
         "value_lens": "save_time",
         "forbidden_angles": ["hard sell on any pillar"],
         "signal_sources": ["website only"],
     },
 }
+
+# Segments renamed after their first personalization run. Rows already written
+# to disk carry the old key, so resolution has to keep accepting it or a re-run
+# would strand a shipped list in the fallback. The rename is a clarity fix
+# ("fit" implied a score; nothing is scored) and must not change any copy.
+SEGMENT_ALIASES = {"low_fit": "general"}
+
+GENERAL_SEGMENT = "general"
+
+
+def canonical_segment(segment: str) -> str:
+    """Resolve a possibly-legacy segment key to its current name."""
+    seg = (segment or "").strip() or GENERAL_SEGMENT
+    return SEGMENT_ALIASES.get(seg, seg)
 
 CATEGORY_TO_SEGMENT: dict[str, str] = {}
 
@@ -230,7 +247,7 @@ _add(
     "Corporate campus", "Corporate office", "Holding company",
 )
 _add(
-    "low_fit",
+    "general",
     "Car rental agency", "Van rental agency", "Aircraft rental service",
     "Limousine service", "Airport shuttle service", "Towing service",
     "Department of motor vehicles", "Pawn shop", "Cleaners", "Mailing service",
@@ -248,8 +265,9 @@ _add(
 # 2026-09-15 survey pass. Every category below was unmapped in the Aug 13
 # list and has NEVER been personalized on any Drive list, so mapping it
 # cannot split an audience across two angles. Categories that already
-# shipped under low_fit are deliberately absent: their copy is live in ESPs
-# and re-angling them would make per-segment reply rates incomparable.
+# shipped under the generic fallback are deliberately absent: their copy is
+# live in ESPs and re-angling them would make per-segment reply rates
+# incomparable.
 # tests/test_shipped_segments_frozen.py enforces this invariant.
 # ---------------------------------------------------------------------------
 _add(
@@ -383,7 +401,7 @@ BUSINESS_NAME_MARKERS = re.compile(
 
 
 def segment_for_category(category: str) -> str:
-    return CATEGORY_TO_SEGMENT.get((category or "").strip(), "low_fit")
+    return CATEGORY_TO_SEGMENT.get((category or "").strip(), GENERAL_SEGMENT)
 
 
 def looks_like_business(name: str) -> bool:
@@ -418,7 +436,253 @@ NOT_PERSON_NAME_TOKENS = frozenset({
     "edward", "island", "chris", "absolute", "moderneuropean", "articulate",
     "wegner", "carriage", "house", "motor", "cars", "shooting", "facilities",
     "storage", "range", "indoor", "outdoor", "wood", "working", "furniture",
+    # Place and locality words. A GMB business name parsed into a single token
+    # is usually the town it is named after, not a person.
+    "paradise", "oakland", "austin", "dallas", "houston", "phoenix", "tempe",
+    "mesa", "scottsdale", "chandler", "gilbert", "irvine", "pasadena",
+    "boulder", "denver", "seattle", "portland", "sandiego", "chicago",
+    "boston", "atlanta", "miami", "orlando", "tampa", "jacksonville",
+    "columbia", "charleston", "savannah", "nashville", "memphis", "milwaukee",
+    "minneapolis", "stlouis", "kansas", "omaha", "tucson", "albuquerque",
+    "fresno", "sacramento", "oakland", "berkeley", "pasadena", "redding",
+    # Single letters and abbreviation soup from mis-split "Name" fields.
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n",
+    "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+    "jr", "sr", "ii", "iii", "iv", "md", "phd", "dds", "dmd", "esq",
+    "inc", "llc", "ltd", "co", "plc", "pc", "pa", "np",
 })
+
+# Raw GMB "Name" fields that parse into a first-name token which is really a
+# parse artifact or a business word, not a person. Kept separate from
+# NOT_PERSON_NAME_TOKENS because these are the shapes that actually appear in
+# the Name column: a leading verb/adjective fragment ("Become.", "Big",
+# "Better"), a category noun ("Dentistry", "Film", "Photo"), or a bare
+# placeholder the CSV exported instead of a real name ("None", "My").
+PARSE_ARTIFACT_TOKENS = frozenset({
+    "none", "my", "our", "us", "we", "me", "him", "her", "their", "its",
+    "nan", "null", "none", "n/a", "na", "unknown", "undefined", "test",
+    "name", "first", "last", "firstname", "lastname", "fullname", "contact",
+    "admin", "office", "info", "hello", "team", "owner", "founder", "ceo",
+    "boss", "principal", "partner", "manager", "reception", "front", "desk",
+    "someone", "anyone", "nobody", "mr", "mrs", "ms", "dr", "prof",
+    "become", "becomes", "big", "better", "best", "good", "great", "grow",
+    "growthe", "building", "built", "build", "make", "made", "do", "done",
+    "get", "got", "go", "hold", "hot", "new", "now", "one", "real", "say",
+    "see", "use", "want", "well", "all", "every", "any", "double", "triple",
+    "single", "full", "half", "more", "most", "less", "many", "much", "such",
+    "very", "quite", "just", "only", "even", "still", "already", "always",
+    "never", "often", "sometimes", "maybe", "perhaps", "definitely",
+    "actually", "basically", "literally", "simply", "clearly", "obviously",
+})
+
+# Nouns naming a business type or trade. A first name is never one of these.
+BUSINESS_NOUN_TOKENS = frozenset({
+    "dentistry", "dental", "medicine", "medical", "surgery", "surgical",
+    "clinic", "hospital", "pharmacy", "therapy", "therapist", "fitness",
+    "yoga", "pilates", "massage", "salon", "spa", "barber", "hair", "nails",
+    "florist", "floral", "bakery", "cafe", "coffee", "restaurant", "bistro",
+    "pizza", "grill", "kitchen", "brewery", "bar", "pub", "winery", "vineyard",
+    "hotel", "motel", "resort", "lodge", "inn", "travel", "tours", "tour",
+    "law", "legal", "attorney", "accounting", "tax", "insurance", "banking",
+    "realty", "realestate", "property", "properties", "landscaping",
+    "landscape", "roofing", "plumbing", "hvac", "electrical", "painting",
+    "cleaning", "cleaners", "laundry", "drycleaning", "catering", "caterer",
+    "printing", "print", "signage", "marketing", "advertising", "branding",
+    "photography", "photographer", "photo", "video", "film", "films", "media",
+    "studio", "studios", "recordings", "recording", "productions",
+    "entertainment", "events", "wedding", "weddings", "venue", "catering",
+    "camping", "marina", "marine", "diving", "fishing", "hunting",
+    "church", "temple", "mosque", "synagogue", "school", "academy", "college",
+    "university", "college", "preschool", "daycare", "childcare",
+    "carrental", "rental", "rentals", "leasing", "storage", "moving",
+    "towing", "locksmith", "repair", "repairs", "shop", "store", "market",
+    "supply", "supplies", "wholesale", "retail", "boutique", "salon",
+    "contractor", "contracting", "builder", "builders", "construction",
+    "consulting", "consultants", "management", "partners", "holdings",
+    "ventures", "capital", "partners", "group", "team", "labs", "laboratory",
+    "clinic", "dental", "optical", "vision", "hearing", "audiology",
+    "pets", "pet", "veterinary", "vet", "animal", "farm", "ranch", "garden",
+    "hardware", "plumbing", "tools", "machine", "machinery", "industrial",
+    "fabrication", "foundry", "mining", "energy", "solar", "electric",
+    "plastics", "chemical", "packaging", "food", "beverage", "caterers",
+    "agriculture", "farmers", "winery", "cider", "butcher", "deli", "grocery",
+})
+
+# Tokens that only ever look like a truncated leading word of a longer
+# business name — "A+", "Ad-Star", "Aecon", "Build" — plus connective junk.
+FRAGMENT_TOKENS = frozenset({
+    "ad", "star", "a", "plus", "pro", "co", "inc", "the", "of", "and", "for",
+    "to", "at", "by", "in", "on", "no", "yes", "hey", "hi", "heyfilm",
+    "act", "art", "artistic", "artisan", "atlas", "atom", "atomic", "avion",
+    "blue", "bold", "brave", "bright", "brilliant", "brink", "burn", "casa",
+    "casual", "chase", "chevron", "civic", "classy", "clever", "cloud",
+    "cobalt", "cobaltblue", "colossal", "comet", "compass", "copper", "core",
+    "craft", "creative", "crown", "crush", "dawn", "deep", "delta", "denim",
+    "dial", "dignity", "divine", "dominion", "door", "dream", "drift",
+    "driven", "dynamic", "eagle", "earth", "east", "echo", "edge", "elevate",
+    "elite", "emerge", "empire", "enigma", "envy", "epic", "essence", "ever",
+    "everest", "evergreen", "exalt", "excel", "exotic", "expert", "extreme",
+    "fable", "fade", "fancy", "fathom", "federal", "feline", "fenix", "feral",
+    "ferox", "fiber", "fidelity", "fierce", "finest", "finesse", "flair",
+    "flare", "flint", "flourish", "flux", "forge", "foundry", "four", "fox",
+    "freedom", "frontier", "fusion", "gala", "galaxy", "garden", "garnet",
+    "gem", "genesis", "glacier", "glide", "glory", "glow", "golden", "granite",
+    "graphic", "gravitas", "green", "grove", "grow", "guardian", "gulf",
+    "halo", "haven", "hearth", "heaven", "hero", "highland", "hilton", "holo",
+    "horizon", "horizon", "hunt", "hustle", "hydra", "ignite", "imagine",
+    "impact", "impress", "indigo", "infinite", "ingenious", "innovation",
+    "inspire", "intense", "invent", "iris", "iron", "jade", "jazz", "jolt",
+    "juno", "kanso", "keen", "kicker", "kin", "kinesis", "klar", "lance",
+    "lattice", "launch", "lava", "legend", "lemon", "level", "liberty",
+    "light", "lily", "lumen", "lunar", "luminous", "luxe", "magnet", "majestic",
+    "marble", "marlin", "marquee", "mason", "matrix", "meadow", "meridian",
+    "mesa", "metropolitan", "midnight", "mighty", "momentum", "monarch",
+    "monolith", "moon", "motion", "motive", "muse", "nautilus", "nebula",
+    "nectar", "neon", "noble", "nomad", "north", "nouveau", "nova", "nucleus",
+    "nurture", "oasis", "obsidian", "ocean", "oak", "onyx", "opal", "orbit",
+    "orchid", "organic", "origin", "outlier", "outpost", "oxide", "pace",
+    "pacifica", "palace", "palm", "panther", "paradigm", "paragon", "park",
+    "peak", "pearl", "pebble", "pelican", "phantom", "phoenix", "pinnacle",
+    "pioneer", "pivot", "plasma", "platinum", "plume", "polar", "polish",
+    "port", "possibility", "praise", "prelude", "presta", "prime", "prism",
+    "prolific", "proof", "prowess", "pulse", "pursuit", "quarry", "quartz",
+    "quest", "radiant", "rally", "rampart", "rapid", "raven", "realm",
+    "rebel", "redwood", "reef", "reform", "reign", "relic", "renew", "revere",
+    "ridge", "rigor", "rival", "roam", "rocket", "rodeo", "roots", "rover",
+    "royal", "ruby", "runway", "rustic", "sable", "saffron", "sage", "salient",
+    "salon", "sanctuary", "satin", "saver", "scarlet", "schema", "scoff",
+    "seabird", "seamless", "seeker", "sequoia", "serene", "shadow", "shimmer",
+    "shock", "sierra", "silk", "silver", "simple", "sincere", "sky", "slick",
+    "slipstream", "smart", "smith", "soar", "social", "solo", "sonic", "soul",
+    "spark", "sparkle", "spectrum", "spire", "splendor", "sport", "sprout",
+    "stark", "stellar", "still", "sting", "stone", "storm", "strata", "stream",
+    "street", "stride", "studio", "summit", "sun", "sunrise", "sunset",
+    "supreme", "surf", "swirl", "sylvan", "synergy", "tactile", "talon",
+    "tandem", "tangent", "tempo", "tendril", "terra", "terrain", "thicket",
+    "thread", "thrive", "thunder", "tidal", "tide", "timber", "titan",
+    "topaz", "torch", "tornado", "total", "touch", "trace", "trail", "trajectory",
+    "tranquil", "trek", "tribute", "triumph", "trout", "true", "truffle",
+    "tumble", "tundra", "turbine", "tusk", "twilight", "ultra", "umber",
+    "undertow", "unison", "unity", "untamed", "uplift", "upscale", "urban",
+    "urbane", "vanguard", "vault", "velvet", "venerate", "verge", "vertex",
+    "vertigo", "vestige", "veto", "vibe", "vibrant", "vigil", "vigor", "viking",
+    "villa", "vintage", "violet", "vireo", "vista", "vital", "vivid", "vocal",
+    "volition", "voltage", "voyage", "wander", "ward", "warmth", "watch",
+    "waterfall", "wave", "waypoint", "weather", "weld", "welfare", "west",
+    "wheat", "whisper", "wild", "willow", "wind", "wing", "wink", "win",
+    "wins", "wire", "wisp", "wistful", "wonder", "wood", "work", "world",
+    "worthy", "wrap", "wren", "wyrm", "yard", "yarrow", "yeast", "yield",
+    "young", "zen", "zephyr", "zinc", "zone",
+})
+
+# Positive allowlist of given names, the one signal that actually scales.
+# Denylists cannot: the Name column is raw GMB data, so "Hi Beemedia," and
+# "Hi Aurevoir," are brands that no denylist will ever finish catching. Every
+# name here is a real given name common enough on US business directories to
+# appear in this market, across the name origins actually present in the lists
+# (Anglo, Hispanic, French, German, Italian, Slavic, Nordic, South Asian,
+# Middle Eastern, East and Southeast Asian).
+#
+# A false positive ("Hi Dental Clinic,") is far more damaging than a false
+# negative ("Hi,"), so the list is deliberately generous but closed: a name
+# that is not here falls back to "Hi," unless the address corroborates it
+# (see name_matches_email).
+GIVEN_NAMES = frozenset("""
+aaron abigail adam adrian adriana agnes ahmed alan alba albert alberto alejandro
+alex alexa alexander alexandra alexis alfonso alice alicia alina alison allen
+allison alvaro amanda amber amelia amir amy ana anastasia anderson andre andrea
+andrew angel angela angelo anita ann anna anne annette anthony antonio april
+arjun arlo arthur asha ashley aubrey audrey august austin ava avery barbara barry
+beatrice becky belinda ben benjamin bernard bernice beth bethany betty beverly
+bianca bill billy blake bobby bonnie brad braden bradley brandon brenda brendan
+brent brett brian brianna brooke bruce bryan caleb callie cameron camila candace
+candice carlos carmen carol carolina carrie casey cassandra catherine cecilia
+celeste chad charlene charles charlie charlotte chelsea cheryl chloe chris
+christian christina christine christopher cindy claire clara clarence claude
+clayton clifford clinton cody cole colin colleen connie connor conrad constance
+cora corey courtney craig cristina crystal curtis cynthia daisy dale dallas
+damian damon dana daniel daniela danny darren darryl dave david dawn dean deborah
+declan delia denis denise dennis derek desmond devin diana diane diego dominic
+donna dora doreen dorothy douglas duncan dylan earl ebony eddie edgar edith
+edward edwin eileen elaine eleanor elena eli elijah elisa elisabeth elise eliza
+elizabeth ella ellen elmer eloisa elsa elton emanuel emily emma emmanuel enrique
+eric erica erik erin ernest esther ethan eugene eva evan evelyn ezra faith
+farah felicia felix fernando fiona florence floyd frances francesca francis
+francisco frank franklin fred freddie frederick gabriel gabriela gaetano gail
+gale garrett gary gavin gemma gene geoffrey george georgia gerald gina giovanni
+gladys glen glenn gloria gordon grace graham grant greg gregory guadalupe
+guillermo gustavo guy gwen hailey hank hannah harold harper harry harvey
+hassan hazel heather hector heidi helen helena henry herbert herman hilda holly
+hope horace howard hubert hugh hunter ian ibrahim ida ignacio imani ines ingrid
+irene irma isaac isabel isabella isaiah ismael ivan ivy jack jackie jackson
+jacob jacqueline jade jaime jamal james jamie jan jane janet janice jasmine
+jason javier jay jayden jean jeanette jeff jeffrey jenna jennifer jenny jeremy
+jerome jerry jesse jessica jesus jill jim jimmy joan joann joanna joaquin
+joel john johnny jon jonathan jordan jorge jose joseph josephine joshua joy
+joyce juan juanita judith judy julia julian julie julien juliet julio june
+justin kaitlyn kara karen karin karl kate katherine kathleen kathryn kathy
+katie kay kayla keith kelly ken kendra kenneth kent kerry kevin khalid kim
+kimberly kirk kristen kristi kristin kurt kyle lance larry latoya laura lauren
+laurie lawrence leah lee leon leonard leslie lester leticia lewis liam lila
+lillian lily linda lindsay lino lisa lloyd logan lois lola lonnie louis louise
+lucas lucia lucille lucinda luis luke lydia lyle mabel mack madison mae maggie
+mahmoud malcolm mandy manuel marcel marcus margaret maria mariah marie marilyn
+marina mario marion marisa marisol marjorie mark marlene marsha marshall martha
+martin marty marvin mary mason mathew matthew maureen maurice max maxine maya
+megan meghan melanie melinda melissa melvin mercedes meredith micah michael
+michele michelle miguel mike mila mildred miles milton mindy miranda miriam
+misty mitchell molly monica monique morgan moses murray myra myron nadia nancy
+naomi natalie natasha nathan neal neil nelson nicholas nicole nigel nina noah
+noel nora norma norman oliver olivia omar opal oscar oscar owen pablo pamela
+patricia patrick paul paula pauline pearl pedro peggy penny perry peter
+petra philip phillip phoenix pierre preston priscilla quentin quinn rachel
+rafael rahul raj ralph ramon ramona randall randy raquel ray raymond rebecca
+regina reginald rene renee rex rhonda ricardo richard rick ricky rita robert
+roberta robin rocco roger roland roman ron ronald rosa rosalie rose roy ruben
+ruth ryan sabrina salvador sam samuel sandra santiago sara sarah scott sean
+sebastian selena sergio shane shannon shari sharon sheila sheldon shelly
+sherry shirley sidney sierra silvia simon sofia sonia sonya sophia stanley
+stephanie stephen steve steven stewart sullivan susan suzanne sydney sylvia
+tanya tara taylor ted terence teresa terry thelma theodore thomas tiffany
+timothy tina toby todd tom tomas tommy toni tony tracey tracy travis trevor
+tricia tristan tyler tyrone valerie vanessa vera vernon veronica vicki victor
+victoria vincent viola violet virginia vivian wade wallace walter wanda warren
+wayne wendy wesley whitney wilbur wilfred will willard william willie wilson
+winston yolanda yvette zachary zoe
+aisha akira aleksandr alexei amara amelia amir anis anwar aya ayesha aziz
+bachir badia bagha benoit bianca bilge bjarne bojana branimir bruno camille
+carlos cecilia chen chidi chiara chieko christos dalia daniela dario
+davide deniz dilan dimitar dinesh dong dora dorian duc edin emanuele enes
+erhan ersin esther fabio fatima fatih fawaz fernanda flavio gabor gabriele
+gerhard giovanna gohan gonzalo guillermo guneet hanif hassan heike hiroko
+hosni hung hyun ibrahim idris ike imani ines inga irfan isabel jacinta
+janek javier jian jin joaquin jonas jorg josef kaan kadir kai kamil karim karl
+katharina kawsar kenneth khaled khalil kibwe konstantin kosuke krishna kyoko
+lachlan laetitia laila laurentine lars leila lena lenka leo leonor liam lincoln
+ling lorenzo lotfi luca lucia maddalena mahdi maite malik manuel marcelo
+marguerite mariam marisol mateusz mattia mauro mehdi melanie michelle milena
+milica mirembe mirko mladen mohamed mohsen monica mubarak nadia naoki
+natalia nathaniel neha nestor ngozi nia niaz niels nikolai nina noam norman
+octavio oded olga oliver omar orhan osman oyelaran pablo paolo pascal pedro
+petra philippo pierre piotr przemyslaw quentin radek rafael rahim rajesh
+ramon rania reza ricardo rocco rodrigo roger rokas ronen rosa rudi rufus
+saad sabine salma samer sana sangeeta sanjay sara sasha satish sebastian selin
+sergei setha shadi shahab shamil shimon siddharth silvio simone sofia soren
+sorin stefan stefano sudha sven sylvie taavi tadeusz takumi tamar tanvir
+tarek tasos thabo thilo thomas tiberiu timo tino tobias tomasz tsvetan tuan
+tunde ulrich ursula vadim valter velma victor viktor vilma vinay
+vivek waleed wladek yara yasmin yong yu yusuf zaid zakaria zara zdenek zeynep
+adolfo agustin alejandro alfonso angelica antonia aquiles araceli arjun arthur
+bao bartholomew bernardo bo braden brenna bruno caleb calista carlos catalina
+charlotte chen chloe christina cindy cintia dario dawn dean diego dong edith
+elif erik fernando gabriel genevieve grace guadalupe hector hilde hoang hugo
+ike imani ingrid irene isabel jacob janine joanna josef julia juliette kai
+kathleen khalid kiran kristen kyra laura leyla ling lisa lorena lucas maia
+marco margot maria mario marisa marta mateo mauro mei mei ming naomi nathan
+norah octavia omar paola pedro peter priya rachel rafael rahul rania renata
+reuben ricardo rita robert rocco rosa ruth sara sarah shawn sofia sophia steven
+takeshi tariq thomas tomas toru tyler wei yuki yusuf zack zoe
+""".split())
 
 BUSINESS_FRAGMENT_WORDS = frozenset({
     "closet", "closets", "kitchen", "kitchens", "cabinet", "cabinets", "custom",
@@ -444,23 +708,93 @@ def is_generic_email(email: str) -> bool:
     )
 
 
-def is_plausible_first_name(name: str) -> bool:
+def name_matches_email(first_name: str, email: str) -> bool:
+    """True when the address local-part carries a person-shaped name (jane@).
+
+    Used only to rescue a name that is not on ``GIVEN_NAMES``: an address like
+    ``mckinley@northside.com`` is real corroboration that the token is a person,
+    even when the allowlist does not carry it. Deliberately narrow:
+
+    - the local-part must be the name, or the name plus a single initial
+      ("jane", "jane.smith", "janeb"), so "info@", "sales1@" and "northside@"
+      never qualify;
+    - the domain must NOT be a restatement of the name ("zenith@zenith.com"),
+      which is the signature of a business mailbox, not a person.
+    """
+    if not first_name or not email or "@" not in email:
+        return False
+    local_part, _, domain = email.partition("@")
+    local = re.sub(r"[^a-z]", "", local_part.lower())
+    name = re.sub(r"[^a-z]", "", (first_name or "").lower())
+    if len(name) < 3 or not local:
+        return False
+    domain_base = re.sub(r"[^a-z]", "", domain.split(".", 1)[0].lower())
+    if domain_base and (domain_base == name or domain_base.startswith(name)):
+        return False
+    # "sarah.jones@", "sarah_jones@", "jones.sarah@", "sarahjones@" are all
+    # ordinary personal-address shapes, so the name may be the first or second
+    # dot/underscore segment, or the whole local-part with the surname joined.
+    segments = [re.sub(r"[^a-z]", "", s) for s in re.split(r"[._-]", local_part)]
+    segments = [s for s in segments if s]
+    if name in segments:
+        return True
+    for segment in segments:
+        if segment.startswith(name) and len(segment) == len(name) + 1:
+            return True
+        if segment.endswith(name) and len(segment) == len(name) + 1:
+            return True
+    joined = "".join(segments)
+    return joined.startswith(name) and len(joined) == len(name) + 1
+
+
+def is_plausible_first_name(name: str, email: str = "") -> bool:
+    """True only when ``name`` is safe to put in a "Hi {name}," greeting.
+
+    The Name column is raw GMB data: it carries business names, category nouns,
+    addresses, and CSV export artifacts. Anything that is not verifiably a human
+    given name falls back to "Hi," — a safe, slightly colder greeting always
+    beats "Hi Dental Clinic,".
+
+    Order matters: cheap structural rejections first, then the allowlist, then
+    the business-marker heuristic. ``email`` is optional corroboration that can
+    rescue a real name the allowlist does not carry.
+    """
     token = (name or "").strip().strip("'\"")
     if not token or " " in token or len(token) < 2 or len(token) > 18:
         return False
+
+    # Non-alphabetic content means a fragment, not a name: "Become.",
+    # "Bing's", "A+", "Hey!Film", "Soixan7e", "2401". Apostrophe-hyphenated
+    # given names are rare in a GMB export and never worth the risk here.
+    if not token.isalpha():
+        return False
+
+    # Two or three initial caps ("BH", "JR", "SW") are abbreviations, not names.
+    if token.isupper() and len(token) <= 3:
+        return False
+
     low = token.lower()
+
+    # The allowlist is the decision. Everything below only guards the edge
+    # cases that would let a brand through a lucky structural match.
+    if low in GIVEN_NAMES:
+        return True
+
+    if not email:
+        return False
     if low in NOT_PERSON_NAME_TOKENS or low in BUSINESS_FRAGMENT_WORDS:
         return False
-    if token.isupper() and len(token) > 2:
+    if low in PARSE_ARTIFACT_TOKENS or low in BUSINESS_NOUN_TOKENS:
         return False
-    # CSV names arrive in any case ("jane"); validate the lowercased token
-    # rather than mis-tiering a real contact to company.
-    probe = token[:1].upper() + token[1:]
-    if not probe[0].isupper():
+    if low in FRAGMENT_TOKENS:
         return False
-    if looks_like_business(probe):
-        return False
-    return True
+    # CamelCase / multiword brands: "Beemedia", "BioLogic", "MaxiLash".
+    # Mc* is the one legitimate exception and is allowed through.
+    if not low.startswith("mc"):
+        for ch in token[1:]:
+            if ch.isupper():
+                return False
+    return name_matches_email(token, email)
 
 
 def is_plausible_last_name(name: str) -> bool:
@@ -484,14 +818,14 @@ def resolve_outreach_tier(
     """Person tier only when name + email clearly indicate a real contact."""
     if not primary_email or is_generic_email(primary_email):
         return "company"
-    if not is_plausible_first_name(first_name) or not is_plausible_last_name(last_name):
+    if not is_plausible_first_name(first_name, primary_email) or not is_plausible_last_name(last_name):
         return "company"
     if raw_name and looks_like_business(raw_name):
         return "company"
     return "person"
 
 
-def greeting_template(tier: str, first_name: str, company_name: str) -> str:
-    if tier == "person" and is_plausible_first_name(first_name):
+def greeting_template(tier: str, first_name: str, company_name: str, email: str = "") -> str:
+    if tier == "person" and is_plausible_first_name(first_name, email):
         return f"Hi {first_name.strip()},"
     return "Hi,"

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lead_personalization import fsutil  # noqa: E402
-from lead_personalization.qa import qa, sequence_issues  # noqa: E402
+from lead_personalization.qa import campaign_repetition, qa, sequence_issues  # noqa: E402
 from personalization import artifacts  # noqa: E402
 
 DELAYS = [0, 3, 7]  # sequence steps ship on day 0, +3, +7
@@ -71,6 +71,7 @@ def build_batch(
 
     out_rows = []
     json_out = []
+    all_sequences = []
     total_pass = 0
     total_emails = 0
 
@@ -134,7 +135,7 @@ def build_batch(
             pairs.append((subj, body))
             row[f"email_{i+1}_subject"] = subj
             row[f"email_{i+1}_body"] = body
-            q = qa(subj, body, item.get("company", ""))
+            q = qa(subj, body, item.get("company", ""), email_raw)
             total_emails += 1
             if q["pass"]:
                 total_pass += 1
@@ -143,6 +144,7 @@ def build_batch(
             )
 
         lead_json["sequence_issues"] = sequence_issues(pairs)
+        all_sequences.append(pairs)
 
         out_rows.append(row)
         json_out.append(lead_json)
@@ -171,6 +173,7 @@ def build_batch(
     out_json_path.parent.mkdir(parents=True, exist_ok=True)
     fsutil.atomic_write_json(out_json_path, json_out)
 
+    repetition = campaign_repetition(all_sequences)
     lines = [
         f"# {prefix} review batch {batch_id} ({len(json_out)} leads)",
         f"Date: {date.today().isoformat()}",
@@ -178,7 +181,20 @@ def build_batch(
         "",
         f"## QA summary: {total_pass}/{total_emails} passed",
         "",
+        f"## Repetition: {repetition['leads']} leads checked",
+        "",
     ]
+    for step_key, stats in repetition["subjects"].items():
+        lines.append(
+            f"- {step_key}: {stats['distinct']} distinct subjects of {stats['sent']} sent; "
+            f"most common \"{stats['top_subject']}\" {stats['top_share']:.0%}"
+        )
+    if repetition["bodies"]:
+        top = repetition["bodies"][0]
+        lines.append(
+            f"- most repeated body line: \"{top['text']}\" on {top['share']:.0%} of leads"
+        )
+    lines.append("")
     for lead in json_out:
         l = lead["lead"]
         name = f"{l['first_name']} {l['last_name']}".strip() or l["company"]

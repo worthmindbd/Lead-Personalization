@@ -1,2 +1,3 @@
 - Always check the Google Sheet as source of truth and continue working on pending jobs, adding new entries if new uploaded files are found. Confidence: 0.95
 - Strictly limit Reoon verifier usage to the free 500 daily credits only — use up to 500 per day and wait for reset rather than exceeding. Confidence: 0.95
+- Works on a lead-personalization cold-outreach email engine ("Lead-Personalization"): offer packs as JSON, subject/closer/support variant pools, 3-email sequences, QA + sanitize gates, and shipped copy review files under `copy/`. Asks for full-project reviews, not narrow fixes. Confidence: 0.8

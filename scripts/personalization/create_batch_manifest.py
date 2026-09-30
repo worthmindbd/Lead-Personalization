@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lead_personalization import fsutil  # noqa: E402
+from lead_personalization.segments import GENERAL_SEGMENT  # noqa: E402
 from personalization import artifacts  # noqa: E402
 
 DEFAULT_SOURCE = ROOT / "leads" / "all-leads-with-email-normalized.csv"
@@ -38,7 +39,7 @@ def create_manifest(
 
     by_segment: dict[str, list[int]] = defaultdict(list)
     for i, row in enumerate(rows):
-        by_segment[row.get("aevora_segment", "low_fit")].append(i)
+        by_segment[row.get("aevora_segment", GENERAL_SEGMENT)].append(i)
 
     segment_order = sorted(by_segment.keys(), key=lambda s: (-len(by_segment[s]), s))
     segment_queues = {s: list(indices) for s, indices in by_segment.items()}
@@ -54,7 +55,7 @@ def create_manifest(
     if ordered_indices:
         for batch_num, start in enumerate(range(0, len(ordered_indices), batch_size), start=1):
             chunk = ordered_indices[start : start + batch_size]
-            segments_in_batch = {rows[i].get("aevora_segment", "low_fit") for i in chunk}
+            segments_in_batch = {rows[i].get("aevora_segment", GENERAL_SEGMENT) for i in chunk}
             batches.append(
                 {
                     "id": f"{batch_num:03d}",

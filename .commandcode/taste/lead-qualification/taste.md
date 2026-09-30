@@ -1,0 +1,7 @@
+Lead qualification rules (Lead-Personalization engine)
+- Hard rule: never add client fit scoring, lead scoring, tiering, or any "good prospect" filter to the lead-personalization engine. Confidence: 0.95
+- Rationale: the user believes every industry needs video editing services, so no lead should ever be judged a bad fit. A lead is evaluated for whether we can email it, never for desirability. Confidence: 0.9
+- The only sanctioned drop reasons are email-worthiness failures: no address, placeholder domain, duplicate, more than 2 leads per company domain, or Reoon-rejected. Never add a new reason of any other kind. Confidence: 0.9
+- Naming convention: the catch-all segment must be named "general" — never anything implying low fit (e.g. "catch-all", "other", "low priority"). Confidence: 0.9
+- Distinction to respect: address-level tiering (person vs. company greeting, via `resolve_outreach_tier`) is about how to address the recipient, not about lead quality — it is not the forbidden prospect-fit tiering. Confidence: 0.6
+- Segment keys are persisted in shipped CSVs (~9,000 rows carry `low_fit`), so renaming one — e.g. `low_fit` -> `general` — must ship a resolution path (`SEGMENT_ALIASES` + `canonical_segment()`) rather than a bare rename. Without it a re-run silently strands already-shipped lists on the fallback and quietly violates the no-lead-dropped invariant. Preserve back-compat on any rename of persisted data. Confidence: 0.7

@@ -22,7 +22,7 @@ import sys
 from lead_personalization.offer_pack import FALLBACK_SEGMENT, OfferPack
 from lead_personalization.qa import qa, sequence_issues, subject_has_spam, subject_is_fragment
 from lead_personalization.sanitize import sanitize_email
-from lead_personalization.segments import greeting_template
+from lead_personalization.segments import canonical_segment, greeting_template
 from lead_personalization.subjects import build_subject
 
 
@@ -83,7 +83,7 @@ def generate_sequence(
     app's "regenerate" action) rotates to a different, still-stable combination.
     """
     email = (research.get("email") or row.get("primary_email", "")) + key_salt
-    raw_segment = row.get("aevora_segment", FALLBACK_SEGMENT)
+    raw_segment = canonical_segment(row.get("aevora_segment", FALLBACK_SEGMENT))
     if raw_segment not in offer_pack.segment_copy:
         print(
             f"Warning: unknown aevora_segment {raw_segment!r}; "
@@ -119,11 +119,13 @@ def generate_sequence(
 
     # Dual-tier greeting: person tier greets by first name when the row's
     # normalized tier says a real, named contact is reachable; everything else
-    # gets the safe "Hi,". greeting_template re-validates the name.
+    # gets the safe "Hi,". greeting_template re-validates the name and passes
+    # the address so a name the allowlist misses can still be corroborated.
     greeting = greeting_template(
         research.get("outreach_tier") or row.get("outreach_tier") or "company",
         research.get("first_name") or row.get("first_name") or "",
         "",
+        email,
     )
 
     opener_tmpl, o_idx = _pick(offer_pack.openers[evidence], email, "opener")
@@ -225,7 +227,7 @@ def fix_sequence(
     *,
     key_salt: str = "",
 ) -> list[tuple[str, str]]:
-    segment = row.get("aevora_segment", FALLBACK_SEGMENT)
+    segment = canonical_segment(row.get("aevora_segment", FALLBACK_SEGMENT))
     if segment not in offer_pack.segment_copy:
         segment = FALLBACK_SEGMENT
     company = _company_ref(row, research)
@@ -249,14 +251,14 @@ def fix_sequence(
             subj = cut[: cut.rfind(" ")] if " " in cut else cut
         body = body.replace("—", "-").replace("…", "")
         subj, body = sanitize_email(subj, body)
-        q = qa(subj, body, company)
+        q = qa(subj, body, company, key)
         if not q["pass"]:
             if q["word_count"] > 100:
                 lines = body.split("\n\n")
-                while len(lines) > 2 and qa(subj, "\n\n".join(lines), company)["word_count"] > 100:
+                while len(lines) > 2 and qa(subj, "\n\n".join(lines), company, key)["word_count"] > 100:
                     lines.pop(-2)
                 body = "\n\n".join(lines)
-            q = qa(subj, body, company)
+            q = qa(subj, body, company, key)
             if not q["pass"]:
                 # generate_sequence is clean today, but any future pack edit or
                 # snippet leak that introduces banned/spam/hard-CTA/company
@@ -272,6 +274,7 @@ def fix_sequence(
                         research.get("outreach_tier") or row.get("outreach_tier") or "company",
                         research.get("first_name") or row.get("first_name") or "",
                         "",
+                        key,
                     )
                     cand_body = trim_body(greeting, retry_parts[:-1], retry_parts[-1])
                     cand_subj = build_subject(
@@ -280,7 +283,7 @@ def fix_sequence(
                         hook=hook if step == 1 else "", key=retry_key,
                     )
                     cand_subj, cand_body = sanitize_email(cand_subj, cand_body)
-                    if qa(cand_subj, cand_body, company)["pass"]:
+                    if qa(cand_subj, cand_body, company, key)["pass"]:
                         subj, body = cand_subj, cand_body
                         rebuilt = True
                         break

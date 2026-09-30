@@ -50,7 +50,7 @@ Emails are assembled from **offer packs** (`lead_personalization/offer_packs/*.j
 
 ### The one rule: a mailable address is never dropped
 
-No fit score, no tiering, no "good prospect" filter. A lead is only removed when the email itself is worthless (no address, placeholder domain, duplicate, >2 per company domain, Reoon-rejected). `aevora_segment` picks which copy angle — including `low_fit` for unmapped categories — never whether to write at all. `tests/test_no_lead_is_dropped.py` enforces this invariant.
+No fit score, no tiering, no "good prospect" filter. A lead is only removed when the email itself is worthless (no address, placeholder domain, duplicate, >2 per company domain, Reoon-rejected). `aevora_segment` picks which copy angle — including `general` for unmapped categories — never whether to write at all. Every industry needs finished video, so there is no "bad" segment; `general` is a full copy pool. `tests/test_no_lead_is_dropped.py` enforces this invariant.
 
 ### Research pipeline
 

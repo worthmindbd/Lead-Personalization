@@ -21,6 +21,7 @@ from urllib.request import Request, urlopen
 from lead_personalization import linkedin
 from lead_personalization.qa import HARD_CTA_PATTERNS, contains_forbidden
 from lead_personalization.renderers import VIDEO_EVIDENCE, PageRenderer
+from lead_personalization.segments import canonical_segment
 
 USER_AGENT = "Mozilla/5.0 (compatible; AevoraLeadResearch/1.0)"
 FETCH_TIMEOUT = 12
@@ -295,7 +296,7 @@ def build_signal(
     city = (row.get("City") or "").strip()
     state = (row.get("State") or "").strip()
     location = ", ".join(p for p in [city, state] if p)
-    segment = row.get("aevora_segment", "low_fit")
+    segment = canonical_segment(row.get("aevora_segment", ""))
     channel = social_channel(row)
 
     parts = []

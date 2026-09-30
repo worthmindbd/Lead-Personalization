@@ -19,7 +19,9 @@ DEFAULT_PACK = "aevora"
 # Evidence buckets an opener pool must cover (see research.classify_evidence).
 REQUIRED_EVIDENCE = ("linkedin_posts", "site_video", "social_video", "positioning", "weak")
 # Segment copy and subject templates must at least define this fallback key.
-FALLBACK_SEGMENT = "low_fit"
+# It is the generic catch-all, not a "low fit" bucket: every industry is a
+# prospect, the segment only picks which copy angle a lead reads.
+FALLBACK_SEGMENT = "general"
 REQUIRED_STEPS = (1, 2, 3)
 
 
@@ -40,7 +42,14 @@ class OfferPack:
     subject_templates: dict[str, dict[int, list[str]]]
 
     def segment_solutions(self, segment: str) -> dict[str, list[str]]:
-        return self.segment_copy.get(segment, self.segment_copy[FALLBACK_SEGMENT])
+        # Legacy keys (e.g. the pre-rename "low_fit") resolve through the alias
+        # table so rows already on disk keep their copy angle.
+        from lead_personalization.segments import canonical_segment
+
+        return self.segment_copy.get(
+            canonical_segment(segment),
+            self.segment_copy[FALLBACK_SEGMENT],
+        )
 
 
 def _validate(pack: OfferPack) -> None:
@@ -87,7 +96,7 @@ def _validate(pack: OfferPack) -> None:
             raise OfferPackError(f"subject_templates['{FALLBACK_SEGMENT}'] missing step {step}")
     # segment_copy and subject_templates must agree on every segment key they
     # define, or the pack has a half-configured segment that either writes
-    # copy with low_fit subjects or writes subjects with low_fit copy.
+    # copy with fallback subjects or writes subjects with fallback copy.
     seg_copy_segs = set(pack.segment_copy)
     subject_segs = set(pack.subject_templates)
     if seg_copy_segs != subject_segs:
