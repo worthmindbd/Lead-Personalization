@@ -1,3 +1,6 @@
-- Always check the Google Sheet as source of truth and continue working on pending jobs, adding new entries if new uploaded files are found. Confidence: 0.95
+- Always check the Google Sheet as source of truth and continue working on pending jobs. Sync it first (run the report script with `--upload`), then also check Drive (e.g. `rclone lsjson "gdrive:Raw Leads"`) for newly uploaded lead lists and pick up any new ones. Confidence: 0.95
 - Strictly limit Reoon verifier usage to the free 500 daily credits only — use up to 500 per day and wait for reset rather than exceeding. Confidence: 0.95
+- Communicates in terse one-word commands ("push", "done?") and expects the agent to infer the intent and act without clarifying questions. "push" means commit + push the completed work. Confidence: 0.8
+- Environment conventions: run all Python via `.venv/bin/python` (e.g. `.venv/bin/python scripts/pipeline/...`), and use `rclone` (e.g. `rclone lsjson "gdrive:Raw Leads"`) for Google Drive listing/upload rather than bespoke API calls. Prefer ad-hoc `python -c` one-liners for inspecting JSON state over writing throwaway scripts. Confidence: 0.75
+- Long-running pipeline ops, background polling, and end-of-run reporting conventions live in `pipeline-ops/taste.md`. Confidence: 0.8
 - Works on a lead-personalization cold-outreach email engine ("Lead-Personalization"): offer packs as JSON, subject/closer/support variant pools, 3-email sequences, QA + sanitize gates, and shipped copy review files under `copy/`. Asks for full-project reviews, not narrow fixes. Confidence: 0.8
