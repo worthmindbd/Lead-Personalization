@@ -54,8 +54,3 @@ credentials.json
 /Report.csv
 /Enrichment-Reports.csv
 
-# Development / Evaluation tools (Vercel Gateway & Jev)
-/jev.ts
-/scripts/*jev*
-/scripts/export_engine_samples.py
-
