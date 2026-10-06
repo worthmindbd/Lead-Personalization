@@ -93,3 +93,65 @@ def test_sequence_issues_flags_redundant_paragraphs() -> None:
     issues = sequence_issues(seq)
     assert any(i.startswith("redundant_paragraph:steps_1_and_2") for i in issues)
 
+
+def test_qa_flags_new_ai_slop_phrases() -> None:
+    """Ensure newly researched 2026 AI slop phrases and buzzwords fail QA."""
+    samples = [
+        "Hi,\n\nWe bring a pivotal change to your brand video.\n\nWorth a look?",
+        "Hi,\n\nAt the heart of our mission is to streamline your client pipeline.\n\nThoughts?",
+        "Hi,\n\nIn today's world, video editing is essential.\n\nOpen to a chat?",
+        "Hi,\n\nWe help leverage your raw footage to move the needle.\n\nWorth a short sample?",
+        "Hi,\n\nWe craft a rich tapestry of content for your team.\n\nInterested?",
+    ]
+    for body in samples:
+        res = qa("clean subject", body)
+        assert res["pass"] is False, f"Expected QA failure for slop body: {body}"
+        assert any(i.startswith("ai_slop:") for i in res["issues"])
+
+
+def test_qa_flags_new_spam_triggers() -> None:
+    """Ensure newly researched 2026 spam triggers fail QA."""
+    samples = [
+        "Hi,\n\nAct fast to get our video editing package.\n\nInterested?",
+        "Hi,\n\nWe provide a money-back guarantee on all cuts.\n\nWorth a short sample?",
+        "Hi,\n\nGet instant access with no catch or strings attached.\n\nThoughts?",
+        "Hi,\n\nDouble your income with our video bench.\n\nOpen to exploring?",
+        "Hi,\n\nPlease verify your account to view the video reel.\n\nWorth a short sample?",
+    ]
+    for body in samples:
+        res = qa("clean subject", body)
+        assert res["pass"] is False, f"Expected QA failure for spam body: {body}"
+        assert any(i.startswith("spam_trigger:") for i in res["issues"])
+
+
+def test_qa_flags_new_subject_spam() -> None:
+    """Ensure newly researched 2026 subject line spam words are caught."""
+    spam_subjects = [
+        "act fast on this reel",
+        "risk-free video sample",
+        "action required: video files",
+        "time-sensitive video edit",
+        "order confirmation for reel",
+        "special promotion on edits",
+    ]
+    for subj in spam_subjects:
+        assert subject_has_spam(subj) is True, f"Expected subject spam flag for: {subj}"
+        res = qa(subj, "Hi,\n\nClean body with no spam.\n\nWorth a short sample?")
+        assert res["pass"] is False
+        assert "subject_spam_or_generic" in res["issues"]
+
+
+def test_qa_flags_new_banned_outreach_cliches() -> None:
+    """Ensure newly researched outreach cliches and faux-personal openers fail QA."""
+    cliches = [
+        "just wanted to follow up",
+        "just checking in",
+        "hope you're having a great week",
+        "quick follow-up",
+        "feel free to reach out",
+    ]
+    for c in cliches:
+        res = qa("clean subject", f"Hi,\n\n{c} on our video editing bench.\n\nWorth a short sample?")
+        assert res["pass"] is False, f"Expected QA failure for cliche: {c}"
+        assert any(i.startswith("banned:") for i in res["issues"])
+

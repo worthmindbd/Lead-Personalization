@@ -35,11 +35,12 @@ from lead_personalization.ghost_ink import (  # noqa: E402
     has_ghost_ink,
     inject_ghost_ink,
     pick_ghost_ink,
+    validate_ghost_ink_text,
 )
 
 
 def audit_html(html_path: Path) -> bool:
-    """Verify an HTML file against the 4 Golden Rules."""
+    """Verify an HTML file against the 4 Golden Rules and deliverability standards."""
     print(f"Auditing Ghost Ink in: {html_path}")
     text = html_path.read_text(encoding="utf-8")
 
@@ -75,12 +76,32 @@ def audit_html(html_path: Path) -> bool:
     # Check if template expression or literal passage
     inner = re.sub(r"<[^>]+>", "", block_html).strip()
     if "{{" in block_html:
+        if re.search(r"\{\{-?\s*:=\s*", block_html) or re.search(r"\{\{-?\s*=\s*", block_html):
+            print("  ❌ [Go Template Syntax Failure]: Empty variable identifier before ':=' or '=' in template.")
+            return False
+        if re.search(r"\{\{\{", block_html) or re.search(r"\}\}\}", block_html):
+            print("  ❌ [Go Template Syntax Failure]: Invalid braces ('{{{' or '}}}') in template.")
+            return False
         print("  ✅ [Listmonk Dynamic]: Uses Go template expressions (supports dynamic attribute / Sprig rotation).")
+
+        # Audit fallback embedded passage text for spam triggers and AI slop
+        chunks = re.split(r"\{\{.*?\}\}", inner, flags=re.DOTALL)
+        for idx, chunk in enumerate(chunks):
+            c_text = chunk.strip()
+            if len(c_text.split()) >= 100:
+                issues = validate_ghost_ink_text(c_text)
+                if issues:
+                    print(f"  ❌ [Spam/AI Slop Trigger]: Embedded passage {idx} failed audit: {', '.join(issues)}")
+                    return False
+        print("  ✅ [Spam & AI Slop Guard]: Embedded passages cleared deliverability & authenticity audit.")
     else:
         words = len(inner.split())
         print(f"  ℹ️ [Static Passage]: {words} words.")
-        if words < 200:
-            print(f"  ⚠️ Warning: Passage word count ({words}) is shorter than recommended ~300 words.")
+        issues = validate_ghost_ink_text(inner)
+        if issues:
+            print(f"  ❌ [Spam/AI Slop Trigger]: Static passage failed audit: {', '.join(issues)}")
+            return False
+        print("  ✅ [Spam & AI Slop Guard]: Static passage cleared deliverability & authenticity audit.")
 
     print("  ✅ Ghost Ink check passed successfully!\n")
     return True

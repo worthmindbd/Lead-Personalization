@@ -15,6 +15,7 @@ from lead_personalization.ghost_ink import (
     inject_ghost_ink,
     pick_ghost_ink,
     render_ghost_ink_block,
+    validate_ghost_ink_text,
 )
 
 
@@ -45,8 +46,27 @@ def test_passages_entropy_and_word_count() -> None:
     for p in GHOST_INK_PASSAGES:
         words = len(p["text"].split())
         assert 250 <= words <= 350, f"Passage {p['id']} has unexpected word count: {words}"
-        # No keyword stuffing or spam triggers
-        assert not re.search(r"\b(buy now|act fast|discount|click here)\b", p["text"], re.I)
+        # Validate through deliverability audit engine
+        issues = validate_ghost_ink_text(p["text"])
+        assert issues == [], f"Passage {p['id']} failed deliverability/authenticity audit: {issues}"
+
+
+def test_validate_ghost_ink_text_catches_spam_and_slop() -> None:
+    """Ghost Ink validation engine must flag spam triggers, AI slop, and length violations."""
+    # Spam trigger injection
+    spam_sample = "I was talking with a friend about video editing. " * 30 + "Act fast and buy now for 100% free results."
+    spam_issues = validate_ghost_ink_text(spam_sample)
+    assert any("spam_trigger:" in i for i in spam_issues)
+
+    # AI slop injection
+    slop_sample = "In today's fast-paced digital landscape, we delve into a rich tapestry of video solutions. " * 15
+    slop_issues = validate_ghost_ink_text(slop_sample)
+    assert any("ai_slop:" in i for i in slop_issues)
+
+    # Short passage
+    short_sample = "Too short reflection."
+    short_issues = validate_ghost_ink_text(short_sample)
+    assert any("word_count_out_of_range:" in i for i in short_issues)
 
 
 def test_rule_2_one_block_per_email_never_two() -> None:

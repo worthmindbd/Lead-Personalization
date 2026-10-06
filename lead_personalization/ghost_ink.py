@@ -45,148 +45,145 @@ GHOST_INK_PASSAGES: list[dict[str, str]] = [
         "id": "retention_and_pacing",
         "topic": "Audience retention mechanics, micro-pacing, and watch-time dynamics",
         "text": (
-            "I was talking with a good friend the other day about why we stop watching videos on our "
-            "phones, and we ended up laughing because we both do the exact same thing. You never "
-            "really stop and think to yourself, 'Okay, I am bored now, goodbye.' You just swipe "
-            "away because the person took a breath that was a second too long, or the camera stayed "
-            "on one dull angle where nothing was happening. In our video editing work, I see this "
-            "pattern all the time. When people start editing videos, they often think the answer is "
-            "to throw ten flashy graphics and loud sound effects on the screen every two seconds. But "
-            "watching something like that just gives you a headache. Over the years, I learned that "
-            "keeping someone interested is actually about doing less, not more. It is about trimming "
-            "the awkward little pauses, removing the empty moments, and letting the story move along "
-            "smoothly like a good chat around the kitchen table. When a cut happens at just the "
-            "right beat, you do not even realize you have been watching for five straight minutes. "
-            "We call it pacing, but really it is just being thoughtful with someone's time. If a "
-            "video feels easy to listen to and looks clean, people stick around because it feels "
-            "comfortable. When I sit at my desk and look at a rough edit, my main question is "
-            "simple: would my brother or my closest friend sit through this, or would they reach for "
-            "their phone? If the rhythm drags, I trim it until it moves on its own. Good video work "
-            "is not about showing off fancy software buttons. It is just about telling a clear story "
-            "without wasting anyone's day."
+            "There is a quiet rhythm to video that you only start to notice after staring at the same "
+            "timeline for eight hours straight. When someone is speaking on screen, their eyes shift and "
+            "their hands move in tiny rhythms that tell you when a sentence is really finished. If you cut "
+            "three frames too early, the thought feels chopped in half. If you linger half a second too "
+            "long on an empty stare, the person watching reaches for their pocket without even realizing it. "
+            "In the studio, we spend hours just nudging cut points back and forth by a few frames. Newer "
+            "editors always try to save a slow moment by dropping in a loud swoosh sound or a flashing "
+            "graphic, but that usually makes things worse. It distracts the eye instead of helping the "
+            "viewer follow along. When an edit truly works, nobody thinks about the software or the person "
+            "sitting at the keyboard. The story just rolls forward naturally, the way a good conversation "
+            "unfolds on a long evening drive. You forget that you are looking at thousands of still "
+            "pictures running past twenty-four times a second. You just stay glued to the person talking "
+            "because nothing pulled you out of the room. When I review a rough cut before sending it over "
+            "to a director, I mute the speaker volume first and watch the shapes move across the monitor. "
+            "If the picture still holds my attention without any music to lean on, then I know the cut is "
+            "solid. Real craft is about having the patience to trim away the clutter until only the honest "
+            "pulse remains."
         ),
     },
     {
         "id": "agency_post_bottleneck",
         "topic": "Creative agency scaling, edit capacity, and post-production bottlenecks",
         "text": (
-            "A close friend of mine who runs a marketing team called me last Friday evening, and you "
-            "could hear in his voice that he was completely worn out. He told me his team had just "
-            "brought on two wonderful new clients, which should have been great news, but instead he "
-            "was sitting at his laptop at nine at night staring at huge folders of raw camera footage. "
-            "That seems to happen to almost every agency owner I know. Finding new clients is one "
-            "part of the job, but once the work rolls in, the video editing side turns into a heavy "
-            "load. You have to sort through messy files, fix uneven lighting, clean up the audio, "
-            "add graphics, and turn hours of scattered clips into clean videos that people enjoy. If "
-            "you try to do all of that yourself or scramble for help at the last minute, you end up "
-            "working through weekends and fixing silly mistakes. I told him the real answer is "
-            "having a dependable team you can trust like family. You send over the raw files through "
-            "an organized portal, you talk through the general direction, and you go have dinner "
-            "with your family while the heavy lifting gets finished behind the scenes. That way, "
-            "your clients get clean finished videos on time, your team stays happy, and you do not "
-            "burn out trying to be a full-time video editor on top of running a company. Finding "
-            "reliable help that takes pride in the craft is what lets a business grow without all "
-            "the daily chaos. He smiled and said he had forgotten what a quiet weekend felt like. "
-            "Running a business should give you some peace, not keep you trapped at a desk until "
-            "midnight."
+            "Most agency founders start out loving the creative side of the work, but after a few years "
+            "they find themselves buried under endless production queues. You finish filming a strong "
+            "campaign, the client is excited, and suddenly you are staring down forty terabytes of raw "
+            "camera cards spread across five different drives. Someone has to ingest the files, sync the "
+            "separate audio tracks, balance mismatched skin tones, and build three rounds of revisions "
+            "before Tuesday morning. If you try to carry all of that finishing weight on your own "
+            "shoulders, you stop thinking about growing the business and start feeling like an exhausted "
+            "machine operator. When you juggle ten tasks at once, small details slip through the cracks "
+            "and you spend precious hours apologizing to clients for delayed exports. What founders really "
+            "need is a calm post-production bench that takes the heavy files and returns clean cuts without "
+            "needing constant guidance. You upload the media to a structured server, outline the tone and "
+            "deliverables in a few plain sentences, and let an experienced team handle the frame-by-frame "
+            "assembly. When Monday arrives, the review links are already waiting in your inbox, formatted "
+            "for every delivery standard your client asked for. That peace of mind lets you show up to "
+            "strategy meetings with a clear head instead of bags under your eyes from staying awake until "
+            "four in the morning fixing render errors. Building a great agency should feel like building "
+            "an enduring institution, not running an endless emergency drill. When your finishing "
+            "pipeline runs predictably behind the scenes, you get your evenings back and your work looks "
+            "sharper than ever."
         ),
     },
     {
         "id": "the_first_three_seconds",
         "topic": "Performance creative, A/B hook engineering, and combating creative fatigue",
         "text": (
-            "My sister was showing me an online shop she found through a social media video, and it "
-            "made me laugh thinking about how short our attention spans have become. If a video ad "
-            "does not catch your eye in the first two or three seconds while you are relaxing on the "
-            "couch, your thumb just moves right past it. It does not matter if the product is "
-            "wonderful or if the rest of the story is great. Nobody will ever know because they "
-            "never made it past the opening. Whenever we help teams put together video ads, I "
-            "always tell them not to put all their hopes into just one opening scene. You film the "
-            "main story or product demonstration once, but then in the editing room, you try out ten "
-            "or fifteen different opening hooks. For one version, you might start with a surprising "
-            "question. For another, you show a clear close-up, or call out a common problem people "
-            "deal with every day. Then you share them and let real people show you what they "
-            "actually like. It is always fun to see because the opening we think is the best is not "
-            "always the one that wins. Sometimes a simple, honest opening does much better than "
-            "something overly fancy. By testing different beginnings with the same core video, you "
-            "save a lot of money on filming and you never have to guess what people want. It turns "
-            "video marketing into a practical, step-by-step project instead of a stressful gamble. "
-            "Instead of crossing your fingers and hoping for luck, you let real viewers guide the "
-            "way. When you get those first three seconds right, the rest of the video gets a whole "
-            "lot easier."
+            "Every time we sit down to cut a paid video campaign, the conversation eventually turns to "
+            "the opening three seconds. You can spend thirty thousand dollars hiring actors, renting "
+            "lighting trucks, and scouting locations, but if the first two seconds feel sluggish on a phone "
+            "screen, ninety percent of viewers will thumb right past it before the story begins. That does "
+            "not mean you have to reshoot the whole project when an ad starts to feel stale. In the cutting "
+            "room, the smart move is always to cut multiple distinct beginnings from the exact same raw "
+            "footage. For one version, you might open on a striking close-up of a finished piece. For "
+            "another, you lead with a sharp question or show the messy problem people run into every "
+            "afternoon. You can even rearrange the order of scenes so the most compelling visual arrives "
+            "right on frame one instead of burying it twenty seconds into the timeline. Then you deliver "
+            "those distinct openings to your media team and watch how real people react in the feed. It is "
+            "fascinating because the opening everyone thought was clever in the boardroom is rarely the one "
+            "that wins with actual customers. By treating the beginning as an active variable rather than a "
+            "fixed monument, you protect your production budget and let genuine viewer curiosity guide "
+            "your choices. It turns video distribution into a disciplined craft instead of a nerve-wracking "
+            "toss of the dice. Once you find the opening beat that makes someone pause their scroll and lean "
+            "in, the rest of the story has a fair chance to do its job."
         ),
     },
     {
         "id": "executive_authority_and_craft",
         "topic": "Executive talking-head authority, motion graphics, and brand equity",
         "text": (
-            "I was talking with my cousin recently about how people present themselves online, and we "
-            "got onto the topic of trust. Think about what happens when you watch someone share "
-            "advice on video. If their camera is grainy, the room sounds hollow like an empty garage, "
-            "and the text looks sloppy, it is hard to take their ideas seriously. Even if they are "
-            "brilliant at what they do, the messy video makes them look like a beginner. It is not "
-            "fair, but that is simply human nature. People judge what they see and hear before they "
-            "judge the idea itself. When we work on talking-head videos and presentations, our goal "
-            "is simply to make sure the person looks and sounds as smart as they truly are. That "
-            "does not mean adding silly cartoon stickers or loud pop-ups all over the screen. It "
-            "just means setting up clean colors, clearing out background noise so the voice sounds "
-            "warm and clear, and adding simple graphics when they explain a tricky concept. If "
-            "someone talks about numbers, showing a clean little chart helps the viewer follow "
-            "along without getting tired. Videos like that end up working for you for years. A "
-            "potential client or partner can watch one thoughtful video on their own time and feel "
-            "confident about working with you before you ever pick up the phone. When you take the "
-            "time to polish the details, it shows that you care about your work and respect the "
-            "people watching. That quiet confidence goes a very long way. You do not need to shout to "
-            "be heard; you just need to make sure nothing gets in the way of your message."
+            "People form an opinion about someone's expertise within ten seconds of seeing them on "
+            "camera, long before they finish listening to the argument. If an executive sits down to "
+            "explain a complex topic, but the room sounds like an echo chamber and the lighting is harsh "
+            "and uneven, viewers subconsciously discount the message. It is an unfair instinct, but human "
+            "psychology has always worked that way. Polish communicates respect for the person on the "
+            "other end of the screen. In our studio, when we work on presentations and authority videos, "
+            "our approach is to strip away anything that gets between the speaker and the audience. We do "
+            "not plaster the frame with cartoon stickers, noisy graphics, or frantic transitions that "
+            "belong in a toy commercial. Instead, we balance the color palette so skin tones look rich and "
+            "natural, clean up background hums so the voice sounds warm and centered, and introduce clean "
+            "on-screen charts only when a specific data point needs visual clarity. If someone mentions a "
+            "key ratio or a structural trend, showing a simple, elegant graphic keeps the audience oriented "
+            "without breaking their concentration. When every frame is clean and intentional, viewers stay "
+            "immersed in the substance of your thinking rather than distracted by sloppy production. That "
+            "kind of quiet restraint builds enduring credibility. When a prospect or investor watches a "
+            "clear, well-finished piece on their own time, they feel confident about your standards before "
+            "ever stepping into a meeting room. You never have to shout or wave your arms to prove your "
+            "standing; the care you put into the details says everything that needs to be said."
         ),
     },
     {
         "id": "audio_and_sensory_immersion",
         "topic": "Sound design, spatial audio, vocal presence, and tactile Foley",
         "text": (
-            "An old mentor once told me that sound is half of what you see, and the longer I work "
-            "with video, the more I realize how true that is. Most people spend days picking out "
-            "cameras and adjusting colors, but then they grab a generic music track, slap it under "
-            "the voices, and call it a day. The funny thing is that our ears are much pickier than "
-            "our eyes. If a video cut happens without any natural sound behind it, the whole thing "
-            "feels fake and cold. If someone is speaking and you hear an annoying hum or their voice "
-            "sounds tinny, you start feeling restless without even knowing why. In our studio, we "
-            "spend a lot of time getting the sound just right. We clean up the room echoes, bring "
-            "out the natural warmth in the voice, and add subtle little background sounds like the "
-            "soft click of a button or the gentle rustle of paper. We also make sure the background "
-            "music stays out of the way. It should sit quietly underneath so you never have to "
-            "strain to hear what the person is saying. And when a really important point comes up, "
-            "sometimes the best move is to cut the music completely. That sudden silence makes you "
-            "sit up and pay attention. Most people will never tell you, 'Hey, the audio mix on that "
-            "video was great.' They will just tell you that the video felt nice to watch and kept "
-            "their attention all the way through. Good sound is the quiet glue that makes everything "
-            "feel real. Taking the extra time to balance the audio makes the whole piece feel "
-            "grounded and complete."
+            "You can tell how much care went into a video simply by closing your eyes and listening to "
+            "the track. Most people obsess over camera lenses and sensor sizes, but then they toss a "
+            "stock music file under the dialogue and consider the audio finished. Our ears are far more "
+            "sensitive to rushed shortcuts than our eyes will ever be. If a scene cuts from an indoor "
+            "hallway to an outdoor garden without any subtle shift in room tone or environmental breeze, "
+            "the entire illusion collapses. The video suddenly feels hollow, like two plastic toys being "
+            "clicked together. When we finish audio in the studio, we spend hours layering natural "
+            "textural details that most viewers will never consciously identify. We clean the dialogue so "
+            "every consonant comes through cleanly without any harsh sibilance or nasal rumble. We place "
+            "gentle foley under movement, like the soft setting down of a ceramic mug or the subtle creak "
+            "of a heavy wooden door. Most importantly, we keep the background music from competing with "
+            "the human voice. Music should sit just beneath the conversation like a quiet foundation, "
+            "supporting the emotion of the scene rather than drowning out the words. When an essential "
+            "point arrives, the most powerful choice an editor can make is often to pull the music away "
+            "entirely. That brief instant of silence commands immediate focus and gives the words real "
+            "weight. Great sound work is the invisible thread that holds the entire picture together. When "
+            "the mix is balanced with care, viewers remain immersed from the first sentence to the final "
+            "fade."
         ),
     },
     {
         "id": "systems_and_the_creative_standard",
         "topic": "Post-production systems, asset hygiene, and global commercial standards",
         "text": (
-            "My uncle used to run a small cabinet shop, and whenever I visited, every tool had its "
-            "own hook on the wall and every piece of wood was clearly labeled. He used to tell me "
-            "that being organized is not about being stiff; it is about keeping your mind clear so "
-            "you can do good work without getting frustrated. That advice stuck with me, and it is "
-            "how we run our video studio today. When you handle dozens of video projects every month, "
-            "things can turn messy very fast if you are not careful. If editors use different folder "
-            "names or lose track of files, you end up wasting hours searching through emails, dealing "
-            "with broken download links, and fixing things that should have been simple. We set up "
-            "our studio so every project follows the exact same clear path from the moment raw "
-            "footage arrives to the final delivery. We use a simple client portal so our partners "
-            "always know where their files live, what we are working on, and how revisions are moving "
-            "along. No messy email attachments, no confusion about which version is final, and no "
-            "missed deadlines. Having those basic habits in place means our team can focus all their "
-            "energy on storytelling, color, and pacing instead of hunting down missing assets. People "
-            "do not want to babysit their video projects; they just want to send over their raw clips "
-            "and receive finished work they can feel proud of. When the system behind the scenes is "
-            "calm and organized, the creative work comes out looking its absolute best every single "
-            "time. It takes the stress out of production and lets everyone enjoy the creative "
-            "process."
+            "Every reliable video editor I know eventually develops a near obsession with folder "
+            "structure and file naming. When you are balancing twelve commercial deliverables at the "
+            "same time, creative inspiration cannot survive messy desktop folders and broken cloud "
+            "links. If someone names a project file final version three and another editor renames it "
+            "final version new, the team wastes valuable hours comparing audio sync and chasing down "
+            "lost b-roll. You end up burning out your best talent on administrative confusion instead of "
+            "letting them focus on visual craft. In our studio, we treat file management with the exact "
+            "same seriousness as color grading or pacing. Every campaign follows an unbending folder "
+            "tree from the moment camera cards arrive on our server to the final master export. Audio "
+            "lives in one folder, project timelines in another, motion assets in a dedicated bin, and "
+            "revision exports in clearly dated subfolders. Our production partners drop their raw clips "
+            "into an organized portal where they can check progress and leave timecoded feedback directly "
+            "on the video player without messy email threads. Having that reliable routine behind the "
+            "scenes protects the team from unnecessary panic. It creates a calm working rhythm where "
+            "everyone knows where their assets live and what version is currently active. That means our "
+            "editors can pour all of their mental energy into visual tone, narrative tension, and clean "
+            "pacing rather than hunting down missing font files ten minutes before a deadline. True "
+            "professionalism is not about working in chaotic scrambles; it is about building a quiet, "
+            "dependable bench so that every delivery arrives on schedule looking polished and complete "
+            "every single time."
         ),
     },
 ]
@@ -236,9 +233,10 @@ def inject_ghost_ink(html: str, passage_text: str) -> str:
     """Inject a ghost ink block into HTML, strictly obeying Rule 2 (One block per email, never two).
 
     If a block with `data-gi` already exists, replaces it in-place.
-    If none exists, inserts the block inside the first sensible container:
-    - Immediately after `<td class="email-card"...>` or `<div class="email"...>` if present.
-    - Otherwise right after `<body...>` or at the very beginning of the document.
+    If none exists, inserts the block after the actual email template content:
+    - At the bottom of `<td class="email-card"...>` (before `</td>`) if present.
+    - At the bottom of `<div class="email"...>` (before `</div>`) if present.
+    - Otherwise right before `</body>` or appended at the end of the document.
     """
     new_block = render_ghost_ink_block(passage_text)
 
@@ -246,23 +244,72 @@ def inject_ghost_ink(html: str, passage_text: str) -> str:
     if GHOST_INK_RE.search(html):
         return GHOST_INK_RE.sub(lambda _: new_block, html, count=1)
 
-    # Target 1: inside email-card cell (common in our Listmonk templates)
+    # Target 1: bottom of email-card cell (after actual email content)
     card_match = re.search(r'(<td\s+[^>]*?class=["\'][^"\']*?email-card[^"\']*?["\'][^>]*?>)', html, re.IGNORECASE)
     if card_match:
+        close_td = html.find("</td>", card_match.end())
+        if close_td != -1:
+            return html[:close_td] + "\n              <!-- Ghost Ink Deliverability Block (After Actual Email Content) -->\n              " + new_block + "\n\n            " + html[close_td:]
         pos = card_match.end()
         return html[:pos] + "\n\n              <!-- Ghost Ink Deliverability Block -->\n              " + new_block + html[pos:]
 
-    # Target 2: inside .email container (common in marketing HTMLs)
+    # Target 2: bottom of .email container
     email_div_match = re.search(r'(<div\s+[^>]*?class=["\'][^"\']*?email[^"\']*?["\'][^>]*?>)', html, re.IGNORECASE)
     if email_div_match:
+        close_div = html.rfind("</div>")
+        if close_div != -1 and close_div > email_div_match.end():
+            return html[:close_div] + "\n  " + new_block + "\n" + html[close_div:]
         pos = email_div_match.end()
         return html[:pos] + "\n" + new_block + html[pos:]
 
-    # Target 3: after <body>
-    body_match = re.search(r'(<body[^>]*?>)', html, re.IGNORECASE)
-    if body_match:
-        pos = body_match.end()
-        return html[:pos] + "\n" + new_block + html[pos:]
+    # Target 3: right before </body> (after body content)
+    body_close_match = re.search(r'(</body>)', html, re.IGNORECASE)
+    if body_close_match:
+        pos = body_close_match.start()
+        return html[:pos] + new_block + "\n" + html[pos:]
 
-    # Fallback: prepend
-    return new_block + "\n" + html
+    # Fallback: append
+    return html + "\n" + new_block
+
+
+def validate_ghost_ink_text(passage_text: str) -> list[str]:
+    """Audit Ghost Ink passage copy against deliverability, spam, and AI-slop rules.
+
+    Two Unbendable Rules & Deliverability Guidelines:
+    1. Honest, natural human tone (no keyword stuffing, no marketing claims).
+    2. Zero spam triggers (SPAM_TRIGGERS).
+    3. Zero AI slop buzzwords or formulaic AI clichés (AI_SLOP_PHRASES).
+    4. Zero banned generic cold email phrases (BANNED).
+    5. Zero brand-forbidden terms (BRAND_FORBIDDEN).
+    6. Conversational passage length: ~250-350 words.
+
+    Returns a list of issue strings (empty if fully compliant).
+    """
+    from lead_personalization.qa import (
+        AI_SLOP_PHRASES,
+        BANNED,
+        BRAND_FORBIDDEN,
+        SPAM_TRIGGERS,
+    )
+
+    issues: list[str] = []
+    text = (passage_text or "").strip()
+    words = len(text.split())
+    if words < 250 or words > 350:
+        issues.append(f"word_count_out_of_range:{words}")
+
+    low = text.lower()
+    for trigger in SPAM_TRIGGERS:
+        if trigger in low:
+            issues.append(f"spam_trigger:{trigger}")
+    for slop in AI_SLOP_PHRASES:
+        if slop in low:
+            issues.append(f"ai_slop:{slop}")
+    for b in BANNED:
+        if b in low:
+            issues.append(f"banned:{b}")
+    for bf in BRAND_FORBIDDEN:
+        if bf.strip() in low:
+            issues.append(f"brand_forbidden:{bf.strip()}")
+
+    return issues

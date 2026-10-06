@@ -1,12 +1,12 @@
-# Listmonk Cold Email Templates (3-Sequence Setup with Ghost Ink)
+# Listmonk Cold Email Templates (Primary Inbox 3-Sequence Setup)
 
-High-deliverability, responsive HTML templates for **Listmonk** featuring **Jay's Ghost Ink Framework** ([leadgenjay.com/value/ghost-ink/success](https://leadgenjay.com/value/ghost-ink/success)):
-- **3 Dedicated Sequence Templates**: Ready to copy and paste directly into Listmonk (`Campaigns -> Templates`).
-- **Built-in Ghost Ink**: Hidden ~300-word conversational passages that tilt spam filter algorithms away from promotional classification without appearing to the recipient.
-- **Responsive design**: Clean card design across desktop, tablet, and mobile (Gmail, Outlook MSO, Apple Mail, Superhuman).
-- **Direct variables**: Pulls `email_1_body`, `email_2_body`, and `email_3_body` directly from your imported lead subscriber attributes.
-- **Line break preservation**: Configured with `white-space: pre-line;` so that paragraphs render naturally without clumping.
-- **Direct unsubscribe**: Features official Listmonk `{{ UnsubscribeURL }}` in the footer.
+High-deliverability, high-converting email templates for **Listmonk** featuring **Jay's Ghost Ink Framework** ([leadgenjay.com/value/ghost-ink/success](https://leadgenjay.com/value/ghost-ink/success)):
+- **Premium Visual Presentation**: Centered 600px white container card on a subtle `#f4f4f5` gray canvas, crisp typography, responsive Aevora Media branding header, and founder signature.
+- **Guaranteed Ghost Ink Output**: Hidden ~280-word conversational studio reflections with all 8 client-surviving CSS declarations. Ensures non-empty hidden content in every scenario (test sends, previews, and CSV campaigns).
+- **Zero AI Slop & Zero Spam Words**: Plain, friendly English written like talking to a friend or family member. Zero corporate buzzwords, zero sales hype, and zero em dashes (`—`).
+- **Direct Variable Insertion**: Automatically pulls `email_1_body`, `email_2_body`, and `email_3_body` from imported CSV attributes, with graceful fallback to Listmonk's `{{ template "content" . }}`.
+- **Paragraph Preservation**: Configured with `white-space: pre-line;` so copy paragraphs render with natural spacing.
+- **Compliant Opt-Out**: Friendly opt-out footer featuring Listmonk's `{{ UnsubscribeURL }}` and `{{ UnsubscribeURL }}?manage=true`.
 
 ---
 
@@ -14,9 +14,9 @@ High-deliverability, responsive HTML templates for **Listmonk** featuring **Jay'
 
 | Template File | Purpose in Listmonk | Body Variable | Ghost Ink Delivery |
 | :--- | :--- | :--- | :--- |
-| **[`sequence_1_template.html`](sequence_1_template.html)** | Sequence 1 (Initial Outreach) | `{{ .Subscriber.Attribs.email_1_body }}` | Step 1 rotation pool (offset 0) |
-| **[`sequence_2_template.html`](sequence_2_template.html)** | Sequence 2 (Follow-up) | `{{ .Subscriber.Attribs.email_2_body }}` | Step 2 rotation pool (offset 1) |
-| **[`sequence_3_template.html`](sequence_3_template.html)** | Sequence 3 (Breakup Closer) | `{{ .Subscriber.Attribs.email_3_body }}` | Step 3 rotation pool (offset 2) |
+| **[`sequence_1_template.html`](sequence_1_template.html)** | Sequence 1 (Initial Outreach) | `{{ .Subscriber.Attribs.email_1_body }}` | Dynamic `ghost_ink_1` attribute, with built-in 6-passage auto-rotation |
+| **[`sequence_2_template.html`](sequence_2_template.html)** | Sequence 2 (Follow-up) | `{{ .Subscriber.Attribs.email_2_body }}` | Dynamic `ghost_ink_2` attribute, with built-in 6-passage auto-rotation |
+| **[`sequence_3_template.html`](sequence_3_template.html)** | Sequence 3 (Breakup Closer) | `{{ .Subscriber.Attribs.email_3_body }}` | Dynamic `ghost_ink_3` attribute, with built-in 6-passage auto-rotation |
 
 ---
 
@@ -35,37 +35,81 @@ High-deliverability, responsive HTML templates for **Listmonk** featuring **Jay'
    - Paste the code from [`sequence_3_template.html`](sequence_3_template.html)
 
 ### Step 2: Create Your Campaigns in Listmonk
-* **Campaign 1**:
+* **Campaign 1 (Initial Outreach)**:
   - Template: Select `Cold Email - Sequence 1`
-  - Subject: `{{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else }}quick question{{ end }}`
-  - Body: Leave blank or add any campaign notes (the template automatically pulls each lead's `{{ .Subscriber.Attribs.email_1_body }}`).
+  - Subject: `{{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else }}video editing for your site{{ end }}`
+  - Body: Leave blank or enter campaign notes (the template dynamically renders `{{ .Subscriber.Attribs.email_1_body }}`).
+  - **Alt Body (Plain Text Alternative - fixes `multipart/alternative`)**:
+    ```text
+    {{ if .Subscriber.Attribs.email_1_body }}{{ .Subscriber.Attribs.email_1_body }}{{ end }}
+
+    Best regards,
+    Kawsar Mahmud
+    CEO and Founder
+
+    Unsubscribe: {{ UnsubscribeURL }}
+    ```
+
 * **Campaign 2 (Follow-Up)**:
   - Template: Select `Cold Email - Sequence 2`
-  - Subject: `Re: {{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else if .Subscriber.Attribs.email_2_subject }}{{ .Subscriber.Attribs.email_2_subject }}{{ else }}quick question{{ end }}`
+  - Subject: `Re: {{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else if .Subscriber.Attribs.email_2_subject }}{{ .Subscriber.Attribs.email_2_subject }}{{ else }}video editing for your site{{ end }}`
+  - **Alt Body (Plain Text Alternative)**:
+    ```text
+    {{ if .Subscriber.Attribs.email_2_body }}{{ .Subscriber.Attribs.email_2_body }}{{ end }}
+
+    Best regards,
+    Kawsar Mahmud
+    CEO and Founder
+
+    Unsubscribe: {{ UnsubscribeURL }}
+    ```
+
 * **Campaign 3 (Breakup Closer)**:
   - Template: Select `Cold Email - Sequence 3`
-  - Subject: `Re: {{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else if .Subscriber.Attribs.email_3_subject }}{{ .Subscriber.Attribs.email_3_subject }}{{ else }}quick question{{ end }}`
+  - Subject: `Re: {{ if .Subscriber.Attribs.email_1_subject }}{{ .Subscriber.Attribs.email_1_subject }}{{ else if .Subscriber.Attribs.email_3_subject }}{{ .Subscriber.Attribs.email_3_subject }}{{ else }}video editing for your site{{ end }}`
+  - **Alt Body (Plain Text Alternative)**:
+    ```text
+    {{ if .Subscriber.Attribs.email_3_body }}{{ .Subscriber.Attribs.email_3_body }}{{ end }}
+
+    Best regards,
+    Kawsar Mahmud
+    CEO and Founder
+
+    Unsubscribe: {{ UnsubscribeURL }}
+    ```
 
 ---
 
 ## 3. How Ghost Ink Works Inside These Templates
 
-Each template contains the exact Ghost Ink block specified by Jay:
+Each template incorporates **Jay's Ghost Ink Framework** placed at the **top of the card** (in the active content zone before the header logo and pitch):
 
 ```html
+<!-- Ghost Ink Deliverability Block (Jay's Ghost Ink Framework) -->
+<!-- Positioned at top of card so spam/NLP filters evaluate 280+ words of human text in active content zone -->
 <div data-gi="1" style="color:transparent;font-size:0px;line-height:0px;max-height:0px;mso-hide:all;overflow:hidden;display:none;opacity:0;">
-  ...
+  {{- if .Subscriber.Attribs.ghost_ink_1 -}}{{ .Subscriber.Attribs.ghost_ink_1 }}
+  {{- else if .Subscriber.Attribs.ghost_ink -}}{{ .Subscriber.Attribs.ghost_ink }}
+  {{- else -}}
+    {{- $id := 0 -}}
+    {{- if .Subscriber -}}{{- if .Subscriber.ID -}}{{- $id = .Subscriber.ID -}}{{- end -}}{{- end -}}
+    {{- $idx := mod (add $id 0) 6 -}}
+    {{- if eq $idx 0 -}}...Passage 1...
+    {{- else if eq $idx 1 -}}...Passage 2...
+    ...
+    {{- else -}}...Passage 6...
+    {{- end -}}
+  {{- end -}}
 </div>
 ```
 
-### The 4 Golden Rules Built In:
-1. **Survives every client**: Uses all 8 stacked CSS declarations (Outlook desktop `mso-hide:all`, `display:none`, zero font/line-height/height, transparent opacity).
-2. **One block per email**: Exactly one `data-gi="1"` block per template.
-3. **Never the same paragraph twice**: Automatically rotates through a pool of 6 authentic, ~280-word casual reflections written in plain, friendly English (like talking to a friend or family member about studio work, editing, sound, and client projects—with zero AI slop, zero spam triggers, and zero em dashes).
-4. **Deterministic per recipient**: Same subscriber always gets the same passage for a given sequence step (`mod (add .Subscriber.ID offset) 6`), while consecutive steps (1, 2, 3) rotate to different passages so no recipient ever sees the same passage repeated.
-
-### Custom CSV Override:
-If your imported CSV contains `ghost_ink_1`, `ghost_ink_2`, `ghost_ink_3`, or `ghost_ink`, the template automatically uses your CSV attribute instead of the built-in pool.
+- **Survives every client**: Uses all 8 stacked CSS declarations (Outlook desktop `mso-hide:all`, `display:none`, zero font/line-height/height, transparent opacity).
+- **Rule 2 Compliant (One block per email, never two)**: Strictly 1 hidden block with `data-gi="1"`. Zero hidden secondary divs and zero suspicious zero-width spam evasion characters.
+- **Positioned in Active Content Zone (Top of Card)**: Sits before the header and body so Gmail/Outlook NLP classifiers evaluate 280+ words of authentic human storytelling in the primary content zone, shielding the email from commercial/promotions heuristics.
+- **6-passage automatic rotation**: Contains all 6 authentic studio reflections (~280 words each). Rotates deterministically across subscribers via Listmonk's Sprig engine (`mod (add $id offset) 6`).
+- **Sequence step rotation**: Offsets across sequences (0, 1, 2) ensure the same subscriber never gets the same reflection twice across their 3 sequence emails.
+- **Dynamic attribute priority**: If the subscriber has a personalized `ghost_ink_1/2/3` column from CSV enrichment, it seamlessly prioritizes that attribute.
+- **Human, authentic tone**: Written in plain, friendly English (like talking to a friend or family member about studio work, editing, sound, and client projects—with zero AI slop, zero spam triggers, and zero em dashes).
 
 ---
 
