@@ -1,8 +1,0 @@
-Review & audit workflow preferences
-- For a broad "review the whole project" request, fan out to parallel `explore` subagents for coverage, then personally re-verify the highest-severity claims with direct commands before reporting anything. Confidence: 0.7
-- Prefers findings backed by measured counts over real shipped output (grep + `uniq -c` frequency, distinct-vs-total, top-N concentration share) rather than assertions or evidence from a single sample file. Confidence: 0.7
-- Expects the report to separate "what I verified myself" from "where I'd push back on the subagents", and to name the subagent claims that were false or overstated. Confidence: 0.65
-- Prefers fixes listed in severity order as a numbered list, each anchored to a concrete `file.py:line` or JSON key, closing with a question about what to start on. Confidence: 0.8
-- Answers that closing question the same way every time: "fix all issues and apply what you recommend." Never offer a menu implying one item will be chosen — work the entire list in the severity order given, tracked via a todo list. Delegating the recommendation means the reasoning behind the ordering is trusted, not that scope can be trimmed. Confidence: 0.85
-- Treats documentation claims (e.g. AGENTS.md) as needing verification against the code — asks explicitly what actually exists vs what is documented. Confidence: 0.7
-- Checks in with one-word status pings ("done?"); answer these with a 1-2 line confirmation (done/not done, test count) plus the single outstanding state item (e.g. "nothing is committed yet"), not a re-dump of the full report. Confidence: 0.5

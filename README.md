@@ -82,7 +82,7 @@ Run the tests:
    Personalize leads/my-list.csv — pilot 50 leads first. Confirm your plan before running.
    ```
 
-The agent follows the [lead-email-personalization](.cursor/skills/lead-email-personalization/SKILL.md) skill automatically.
+The agent follows the [lead-email-personalization](.agents/skills/lead-email-personalization/SKILL.md) skill automatically.
 
 ## Project layout
 
@@ -101,11 +101,9 @@ Lead-Personalization/
 │   ├── pipeline/            # Drive orchestrator: run_pipeline.py + report.py + sheets_sync.py
 │   ├── verify_emails_reoon.py       # Reoon email verification (500/day cap)
 │   ├── split_leads_by_category.py   # Split mixed CSV into per-category files
-│   └── personalization/     # Core pipeline (normalize, clean, batch, QA, merge, LinkedIn shim)
-├── .cursor/
-│   ├── skills/              # Agent skills (lead-email-personalization, playwright-cli)
-│   └── rules/               # Auto-apply workflow rule
-├── .agents/skills/          # Skills installed via `npx skills add`
+├── .agents/
+│   ├── skills/              # Universal agent skills (lead-email-personalization, playwright-cli, drive-lead-pipeline)
+│   └── rules/               # Persistent workspace rules
 ├── docs/reference/          # Research notes and reference material
 └── archive/                 # Past campaign outputs (read-only)
 ```
@@ -120,7 +118,7 @@ Lead-Personalization/
 .venv/bin/python scripts/pipeline/run_pipeline.py --list "July 25,2026" # one list only
 ```
 
-Or just say **"run the lead pipeline"** in agent chat (skill: `.cursor/skills/drive-lead-pipeline/`).
+Or just say **"run the lead pipeline"** in agent chat (skill: `.agents/skills/drive-lead-pipeline/`).
 
 ### Per-list flow
 
@@ -218,14 +216,53 @@ For agent-driven runs, the skill handles research and copy; scripts handle norma
 | `copy/*-emails-*.json` | Structured sequence for import |
 | `campaigns/*-research.json` | Research signals per batch |
 
-Copy rules (dual-tier): greeting is `Hi {first_name},` for person-tier leads, `Hi,` for company-tier; the company name never appears in the copy; emails 1-2 are issue → solution → soft CTA and email 3 is the breakup (closer + support + question, no new observation), with openers/solutions/CTAs rotated from variant pools (`copy_variant` column tracks which combination each lead got, so reply rates can be compared per variant).
+## Copy Rules & Dual-Tier Outreach Standards
+
+The copy engine is deterministic: emails are assembled from versioned **offer packs** (`lead_personalization/offer_packs/*.json`) selected by a stable per-lead hash (`_pick()`), driven by research signals.
+
+### 1. Dual-Tier Greeting Rotation
+To prevent Email Service Provider (ESP) content hash fingerprinting across bulk outreach:
+- **`person` tier** (named contact + individual inbox): Rotate greeting text:
+  - `Hi {first_name},`
+  - `Hey {first_name},`
+  - `Hello {first_name},`
+  - `{first_name},`
+- **`company` tier** (Google Maps / GMB / generic inboxes like `info@`, `contact@`, `sales@` / no contact name):
+  - Rotate greeting text: `Hi,`, `Hey,`, `Hello,`
+  - **STRICT RULE**: Never use `Hello [Company Name]`, `Hello Team`, `Hi Team`, or `[Company] Team`.
+  - Output only the clean greeting and move straight into the icebreaker on line 2.
+
+### 2. Client-Centric "You-to-I" Mandate
+- Always talk about the client, their business, their market, or their observable assets.
+- **STRICT PROHIBITION**: Never use sender-centered language like *"I do"*, *"I work"*, *"I would"*, *"I want"*, *"I noticed I could"*, *"I was looking at"*, *"I am reaching out"*, *"We help"*, *"My name is"*, or *"I bla bla"*.
+- The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
+
+### 3. Deliverability, Anti-Slop & Anti-Spam Gate
+- **Zero AI Slop**: Strict ban on buzzwords: *delve, elevate, streamline, supercharge, revolutionize, tapestry, game-changer, seamless, cutting-edge, state-of-the-art, bespoke, in today's fast-paced world, picture this, look no further, take your business to the next level*.
+- **Zero Spam Triggers**: No artificial pressure or exaggerated promises: *guaranteed, 100% free, act now, double your income, risk-free, buy now, click here, urgent*.
+- **Constraints**: Total body ≤ 100 words; mobile preview hook under 70 characters; reading level at 5th–8th grade (conversational peer-to-peer).
+- **Structure**: Each email follows issue → solution → soft CTA (email 3 is the breakup: closer + support + question, no new observation).
+
+### 4. Curated Best-Performing Icebreakers
+
+#### Named Contacts (`person` tier)
+- **LinkedIn Discussion Hook**: *"Your recent LinkedIn note regarding {snippet} hit on an operational gap most teams gloss over..."*
+- **On-Site Asset & Video Finishing Gap**: *"Your current project gallery shows substantial portfolio depth, but the walkthrough clips on the landing page still rely on static title cards..."*
+- **Positioning Contrast Hook**: *"Your site leads with \"{snippet}\", which is clear positioning that most {peer} in {loc} never back up with finished video."*
+
+#### Company-Only & Google Maps Leads (`company` tier)
+- **Google Maps Review Volume & Reputation**: *"Over {review_count} verified reviews in {loc} with a {rating} average is a rare track record for {category}. The customer feedback consistently highlights technician punctuality rather than just basic pricing."*
+- **On-Site Media Gap (Still Photography vs. Video)**: *"The portfolio on your site highlights extensive project work, yet the landing pages rely almost entirely on still photography. For commercial inquiries, short site-walk reels tend to answer client questions before the initial consultation."*
+- **Social Channel vs. Website Disconnect**: *"The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google."*
+- **Category Peer Baseline (Weak-Signal Honest Fallback)**: *"Most {peer} in {loc} sit on usable walkthrough footage and phone clips from active projects that never become finished client-facing video."*
 
 ## Skills
 
 | Skill | Location | Purpose |
 |-------|----------|---------|
-| lead-email-personalization | `.cursor/skills/lead-email-personalization/` | Lead research + cold email copy |
-| playwright-cli | `.cursor/skills/playwright-cli/` | Headless browser for website research |
+| lead-email-personalization | `.agents/skills/lead-email-personalization/` | Lead research + cold email copy |
+| drive-lead-pipeline | `.agents/skills/drive-lead-pipeline/` | Drive orchestrator automation |
+| playwright-cli | `.agents/skills/playwright-cli/` | Headless browser for website research |
 
 ## LinkedIn recent-post enrichment (Apify)
 
@@ -290,10 +327,11 @@ python3 scripts/verify_emails_reoon.py leads/your-list.csv --dry-run  # preview 
 |----------|--------|
 | Daily limit | 500 emails/day (`REOON_DAILY_LIMIT` in `.env`) |
 | Overflow | Extra emails deferred — run again tomorrow, or `--instant` for another 500 via instant credits, or `--full-list` for everything |
-| Cache | `.reoon/verified_cache.json` skips already-verified addresses (full API detail lives here) |
-| Output | One stable file: `leads/<campaign>-verified.csv` |
-| Kept statuses | `safe` and `role_account` only (plus a `Status` column) |
-| Daily runs | Each day's 500 verification rewrites the same file with all kept rows so far |
+| Active Cache | `.reoon/verified_cache.json` skips already-verified addresses (full API detail cached permanently) |
+| Rejected Tombstones | `.reoon/rejected.json` permanently records known rejected/bounced emails so resets never re-spend credits on them |
+| Kept statuses | `safe` and `role_account` only (plus a `Status` column); `invalid`, `disposable`, `spamtrap`, `disabled` dropped |
+| Cross-list Dedup | `.pipeline/contacted.json` ensures addresses verified across multiple Drive lists are never double-verified or double-personalized |
+| Output | One stable file: `leads/<campaign>-verified.csv` updated daily |
 
 Docs: [Reoon API](https://www.reoon.com/articles/api-documentation-of-reoon-email-verifier/)
 

@@ -91,12 +91,17 @@ Output: `leads/all-leads-with-email-enriched.csv`
 
 Legacy real-estate list (`Real-Estate-USA-500.csv`) uses `company`/`title` columns directly; mixed lists require normalization first.
 
-## Dual-tier outreach
+## Dual-tier outreach & greeting rules
 
-| Tier | When | Greeting |
-|------|------|----------|
-| `person` | Named contact + non-generic email | `Hi {first_name},` |
-| `company` | GMB / generic inbox / business-only name | `Hi,` — **no company name anywhere in the copy** (use "your site", "your team") |
+| Tier | When | Greeting Rotation |
+|------|------|-------------------|
+| `person` | Named contact + non-generic email | `{Hi|Hey|Hello} {first_name},` or `{first_name},` |
+| `company` | GMB / Google Maps / generic inbox / business-only name | `{Hi,|Hey,|Hello,}` — **strictly no company name or "team" anywhere in greeting or copy**; straight to icebreaker on line 2 |
+
+### Client-centric mandate (Avoid "I / We / My")
+- Always talk about the client, their business, their market, or their observable assets.
+- **Strictly Banned**: Never use sender-centered language like *"I do"*, *"I work"*, *"I would"*, *"I want"*, *"I noticed I could"*, *"I was looking at"*, *"I am reaching out"*, *"We help"*, *"My name is"*, or *"I bla bla"*.
+- The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
 
 **Company-tier body structure (enforced by `process_batch.py`):** observed issue → our solution → soft CTA. Openers, solutions, and CTAs come from variant pools picked deterministically per lead (`copy_variant` column records the combination).
 
@@ -137,11 +142,12 @@ Follow [frameworks.md](frameworks.md). Segment playbook: [segments.md](segments.
 | Check | Rule |
 |-------|------|
 | Word count | ≤100 words |
-| First line | Specific signal; no small talk |
+| First line | Specific signal; client-focused; strictly no "I/we/my" opener; no small talk |
 | Banned phrases | See frameworks.md |
 | CTA | Soft, low-friction (sample offer, example, or short call) |
 | Subject | ≤60 chars; lowercase; signal/city-specific; no spam words (see `scripts/personalization/subjects.py`) |
-| AI tells | No em dashes, no AI slop words (delve, tapestry, game-changer, etc. - see frameworks.md) |
+| AI tells | No em dashes, zero AI slop / buzzwords (delve, elevate, streamline, supercharge, revolutionize, tapestry, game-changer, seamless, cutting-edge, etc.) |
+| Spam triggers | Zero hype, artificial urgency, or spam words (guaranteed, 100% free, act now, risk-free, buy now, click here) |
 | Company name | Never in body or greeting (company tier) |
 | Truncation | No `...` artifacts in subject or body |
 | Sequence | No duplicate paragraphs or subjects across the 3 steps (`sequence_issues`) |

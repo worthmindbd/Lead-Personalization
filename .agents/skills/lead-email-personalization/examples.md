@@ -68,7 +68,9 @@ Use these patterns when generating or reviewing copy. Replace bracketed placehol
 
 **Person tier (strong)**
 
-> Hi Sarah, saw your agency case study page highlights fintech clients, which usually means deliverable quality is the retention lever.
+> Hi Sarah, (or Hey Sarah, / Hello Sarah,)
+>
+> Saw your agency case study page highlights fintech clients, which usually means deliverable quality is the retention lever.
 
 **Company tier (weak)**
 
@@ -76,11 +78,11 @@ Use these patterns when generating or reviewing copy. Replace bracketed placehol
 
 **Company tier (strong)**
 
-> Hi,
+> Hi, (or Hey, / Hello,)
 >
 > Your homepage leads with performance creative for DTC brands, which is exactly where hook-variant finishing pays off without adding in-house edit headcount.
 
-Note: on company tier the business name never appears in the copy — a scraped list pasting the company name back reads as mail merge. Always second person: "your homepage", "your Instagram", "your portfolio".
+Note: on company tier the business name NEVER appears anywhere in the greeting or copy — a scraped list pasting the company name back reads as mail merge or automated spam. Always use neutral second person: "your homepage", "your Instagram", "your portfolio", "your team".
 
 ## Research signal field (CSV internal)
 
@@ -98,7 +100,7 @@ Bad:
 
 ## Canonical GMB sequence (company tier, home_design)
 
-**Use for:** Google Maps leads with no contact name. Greeting is `Hi,` only; company name appears in the body when it adds context. Run `scripts/personalization/qa.py` on every email before export.
+**Use for:** Google Maps leads with no contact name. Greeting is rotated (`Hi,`, `Hey,`, `Hello,`); **company name never appears anywhere in the greeting or body**. Run `lead_personalization/qa.py` on every email before export.
 
 **Lead context (template):**
 

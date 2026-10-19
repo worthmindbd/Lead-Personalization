@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides universal guidance for AI agents working with code in this repository.
 
 ## What this project is
 
@@ -64,9 +64,17 @@ No fit score, no tiering, no "good prospect" filter. A lead is only removed when
 
 Every artifact a personalization run writes into shared directories (`campaigns/`, `copy/`, `leads/enriched/`) is prefixed with the list's slug — defined in `scripts/personalization/artifacts.py`. Merges glob only their own prefix so two lists can run side by side.
 
-### Copy rules (dual-tier — see table below)
+### Copy rules (dual-tier outreach & icebreaker standards)
 
-Greeting is `Hi {first_name},` for person-tier leads, `Hi,` for company-tier; company name never appears in copy; each email follows issue → solution → soft CTA (email 3 is the breakup: closer + support + question, no new observation). Openers/solutions/CTAs rotate from variant pools. The `copy_variant` column tracks which combination each lead got for reply-rate comparison.
+- **Greeting rotation**:
+  - `person` tier: Rotate greeting text (`Hi {first_name},`, `Hey {first_name},`, `Hello {first_name},`, `{first_name},`).
+  - `company` tier (GMB / Google Maps / generic inbox / no contact name): Rotate greeting text (`Hi,`, `Hey,`, `Hello,`).
+  - **STRICT RULE FOR NO-NAME LEADS**: If a lead does not have a confirmed person's name, **NEVER** use `Hello [Company Name]` or `Hello Team` or `[Company] Team`. Output only the simple greeting and go straight into the icebreaker on line 2.
+- **Client-centric mandate (Avoid "I / We / My")**:
+  - Always talk about the client, their business, their market, or their observable assets.
+  - **STRICT PROHIBITION**: Never use sender-centered language like *"I do"*, *"I work"*, *"I would"*, *"I want"*, *"I noticed I could"*, *"I am reaching out"*, *"We help"*, *"My name is"*, or *"I bla bla"*.
+  - The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
+- **Structure**: Each email follows issue → solution → soft CTA (email 3 is the breakup: closer + support + question, no new observation). Openers/solutions/CTAs rotate from variant pools. The `copy_variant` column tracks which combination each lead got for reply-rate comparison.
 
 ## Lead personalization workflow
 
@@ -83,12 +91,34 @@ When working on lead lists, cold email, outbound, CSV enrichment, or files under
 
 **Drive pipeline:** when asked to "run the lead pipeline" or "process the Drive leads", run `.venv/bin/python scripts/pipeline/run_pipeline.py` end to end. Do not pass `--no-verify` on real runs. Report the final `PIPELINE SUMMARY` block. If rclone auth fails (`rclone lsjson "gdrive:Raw Leads"`), tell the user and stop — do not retry in a loop. Never edit `.pipeline/state.json` by hand unless asked; never delete `leads/pipeline/` working directories for lists that are not `done`.
 
-## Dual-tier outreach
+## Dual-tier outreach & greeting rules
 
-| Tier | When | Greeting |
-|------|------|----------|
-| `person` | Named contact + non-generic email | `Hi {first_name},` |
-| `company` | GMB / generic inbox / business-only name | `Hi,` — **no company name anywhere in copy** (use "your site", "your team") |
+| Tier | When | Greeting Rotation |
+|------|------|-------------------|
+| `person` | Named contact + non-generic email | `{Hi|Hey|Hello} {first_name},` or `{first_name},` |
+| `company` | GMB / Google Maps / generic inbox / business-only name | `{Hi,|Hey,|Hello,}` — **no company name or "team" anywhere in greeting or copy**; straight to icebreaker |
+
+## High-performing B2B icebreakers reference
+
+### Best-performing styles for named contacts (`person` tier)
+1. **Verifiable LinkedIn post / Discussion hook**:
+   - *"Your recent LinkedIn note regarding {snippet} hit on an operational gap most teams gloss over..."*
+   - *"Your recent LinkedIn post (\"{snippet}\") caught my eye. Teams posting that consistently usually gain the most from sharper finishing on the video side."*
+2. **On-site asset & finishing observation**:
+   - *"Your current project gallery shows substantial portfolio depth, but the walkthrough clips on the landing page still rely on static title cards..."*
+   - *"Noticed your site already runs video, which puts you ahead of most {peer} in {loc}. The gap is usually the finish: pacing, hooks, and captions built for each platform."*
+3. **Positioning contrast hook**:
+   - *"Your site leads with \"{snippet}\", which is clear positioning that most {peer} in {loc} never back up with finished video."*
+
+### Best-performing styles for company-only / Google Maps leads (`company` tier)
+1. **Google Maps review volume & reputation hook**:
+   - *"Over {review_count} verified reviews in {loc} with a {rating} average is a rare track record for {category}. The customer feedback consistently highlights technician punctuality rather than just basic pricing."*
+2. **On-site media gap (still photos vs. video)**:
+   - *"The portfolio on your site highlights extensive project work, yet the landing pages rely almost entirely on still photography. For commercial inquiries, short site-walk reels tend to answer client questions before the initial consultation."*
+3. **Social channel vs. website disconnect**:
+   - *"The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google."*
+4. **Category peer baseline (weak-signal honest fallback)**:
+   - *"Most {peer} in {loc} sit on usable walkthrough footage and phone clips from active projects that never become finished client-facing video."*
 
 ## Research signal priority
 
@@ -97,9 +127,10 @@ Evidence priority for the opener: `linkedin_posts` → `site_video` → `social_
 ## QA checks (enforced by `lead_personalization/qa.py`)
 
 - Word count: ≤100 words
-- First line: specific signal; no small talk
+- First line: specific signal; client-focused; no small talk; no "I/we/my" opener
 - Subject: ≤60 chars; lowercase; signal/city-specific; no spam words (`subjects.py`)
-- AI tells: no em dashes, zero AI slop / buzzwords (delve, tapestry, game-changer, seamless, cutting-edge, fast-paced, etc.)
+- AI tells: no em dashes, zero AI slop / buzzwords (delve, tapestry, game-changer, seamless, cutting-edge, fast-paced, supercharge, revolutionize, elevate, etc.)
+- Spam triggers: zero hype, pressure, or spam words (guaranteed, 100% free, act now, risk-free, buy now, click here)
 - Company name: never in body or greeting (company tier)
 - Truncation: no `...` artifacts in subject or body
 - Sequence: no duplicate paragraphs or subjects across the 3 steps

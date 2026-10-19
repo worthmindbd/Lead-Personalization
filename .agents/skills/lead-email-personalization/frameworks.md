@@ -18,10 +18,12 @@ Derived from research-led outbound practice: personalization plus relevance and 
 
 ## Email structure
 
-1. **Greeting** — simple human hello (first name when available; bare `Hi,` on company tier)
-2. **First line (issue)** — most important; earns 1–3 seconds; an observable issue or gap specific to this lead; no filler
-3. **Body (solution)** — how the sender solves that issue; connect the offer without hype
-4. **Close (CTA)** — soft, one clear low-friction next step: sample offer, example, or short call
+1. **Greeting** — rotated human hello:
+   - `person` tier: `{Hi|Hey|Hello} {first_name},` or `{first_name},`
+   - `company` tier: `{Hi,|Hey,|Hello,}` — **strictly no company name or "team" anywhere in greeting or copy**; straight to icebreaker on line 2.
+2. **First line (issue)** — most important; earns 1–3 seconds; an observable issue or gap specific to this lead; client-focused; strictly no "I/we/my" opener; no filler.
+3. **Body (solution)** — how the sender solves that issue; connect the offer without hype.
+4. **Close (CTA)** — soft, one clear low-friction next step: sample offer, example, or short call.
 
 **Length:** ≤100 words total per email. Short lines for mobile.
 
@@ -37,6 +39,24 @@ Every offer must map to at least one:
 
 If none apply honestly, do not force outreach—flag the lead as low fit.
 
+## Client-centric mandate (Avoid "I / We / My")
+
+Always talk about the client, their business, their market, or their observable assets.
+
+**STRICT PROHIBITION**: Never use sender-centered language like:
+- *"I do..."*
+- *"I work..."*
+- *"I would..."*
+- *"I want..."*
+- *"I noticed I could..."*
+- *"I was looking at..."*
+- *"I am reaching out..."*
+- *"We help companies like yours..."*
+- *"My name is..."*
+- Any *"I bla bla"*
+
+The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
+
 ## Banned phrases and patterns
 
 Never use:
@@ -48,19 +68,25 @@ Never use:
 - Corporate filler: "circle back", "touch base", "deep dive", "synergy", "leverage" (as buzzword)
 - Em dashes (—) in body or subject
 - **AI Slop & Buzzwords (User-Voted AI Tells):**
-  - Verbs: `delve`, `delving`, `unleash`, `supercharge`, `revolutionize`, `spearhead`, `skyrocket`, `harness`, `bolster`
-  - Clichés: `tapestry`, `testament to`, `game-changer`, `transformative`, `seamless`, `cutting-edge`, `bespoke`, `plethora`, `multifaceted`, `paradigm shift`, `beacon of`
+  - Verbs: `delve`, `delving`, `unleash`, `supercharge`, `revolutionize`, `spearhead`, `skyrocket`, `harness`, `bolster`, `elevate`, `empower`, `streamline`
+  - Clichés: `tapestry`, `testament to`, `game-changer`, `transformative`, `seamless`, `cutting-edge`, `bespoke`, `plethora`, `multifaceted`, `paradigm shift`, `beacon of`, `robust`
   - Formulaic Openers: `in today's fast-paced`, `in today's digital landscape`, `in today's competitive landscape`, `at its core`, `look no further`, `take your business to the next level`, `unlock your potential`, `stand out from the crowd`, `without further ado`, `needless to say`
-
-Avoid:
-
-- Fake familiarity, excessive exclamation marks
-- Symmetrical AI cadences (e.g. "X is set up, yet Y carries no video. For Z, that is often the gap between a visit and an inquiry.")
-- Statistics not verified in sender docs
-- "We help companies like yours" without specificity
-- Spam-trigger phrasing: `free`, `guarantee`, `act now`, `limited time`, `click here`, `amazing offer`, `risk-free`
+- **Spam-trigger phrasing:** `free`, `guarantee`, `act now`, `limited time`, `click here`, `amazing offer`, `risk-free`, `double your income`, `100% free`
 - Brand-forbidden words per `BRAND_IDENTITY.md`: cheap, affordable, freelancer, quick edit, basic video, gig, broadcast
 - Subject line `Quick question` unless email 3 body asks one specific question (prefer a concrete subject instead)
+
+## High-performing icebreaker styles
+
+### Named Contacts (`person` tier)
+- **LinkedIn Observation**: *"Your recent LinkedIn note regarding {snippet} hit on an operational gap most teams gloss over..."*
+- **On-Site Asset Observation**: *"Your current project gallery shows substantial portfolio depth, but the walkthrough clips on the landing page still rely on static title cards..."*
+- **Positioning Contrast**: *"Your site leads with \"{snippet}\", which is clear positioning that most {peer} in {loc} never back up with finished video."*
+
+### Company-Only & Google Maps Leads (`company` tier)
+- **Google Maps Review Volume & Reputation**: *"Over {review_count} verified reviews in {loc} with a {rating} average is a rare track record for {category}. The customer feedback consistently highlights technician punctuality rather than just basic pricing."*
+- **On-Site Media Gap (Photos vs. Video)**: *"The portfolio on your site highlights extensive project work, yet the landing pages rely almost entirely on still photography. For commercial inquiries, short site-walk reels tend to answer client questions before the initial consultation."*
+- **Social vs. Website Video Disconnect**: *"The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google."*
+- **Category Peer Baseline (Weak-signal fallback)**: *"Most {peer} in {loc} sit on usable walkthrough footage and phone clips from active projects that never become finished client-facing video."*
 
 ## Subject lines
 

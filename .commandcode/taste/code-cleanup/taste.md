@@ -1,8 +1,0 @@
-Removing a feature / dead code ("remove all about X")
-
-- "Remove all about X and Y" is an exhaustive sweep, not a targeted edit. Nothing about the named topic may survive anywhere in the repo: source files, helper scripts, config blocks, `.gitignore` entries, and dependency manifests are all in scope. A removal that only deletes the obvious file is incomplete. Confidence: 0.75
-- Sweep several spellings of the same concept rather than the literal word the user typed — e.g. one case-insensitive grep for `gateway|ai-sdk|@ai-sdk|ai_sdk|vercel` plus a second for `jev`. Also read the files that would carry the dependency (`.gitignore`, `package.json`, `package-lock.json`) instead of trusting a code-only grep. Confidence: 0.7
-- Removing a tool also means removing the scaffolding that existed to hide its files — the `.gitignore` block added for the untracked `jev.ts` / `scripts/*jev*` files was edited out in the same change. Leave a stale ignore rule and the tool's traces survive in config. Confidence: 0.7
-- Check tracking before deleting (`rm -f` for untracked files vs `git rm` for tracked ones), then verify the result: `git status --short` plus a final confirming grep. Confidence: 0.6
-- Destructive sweeps start with a one-line scope declaration naming the blast radius before any `rm` ("All X content is confined to those untracked files plus the `.gitignore` block. Removing them.") — then act without a confirmation gate. Confidence: 0.65
-- Close the task by reporting what was deleted *and* the negative finding — "no references remain anywhere else; `package.json`/`package-lock.json` never had the deps". Proving the absence is the actual deliverable, not the list of files removed. Confidence: 0.7
