@@ -1352,6 +1352,8 @@ def main() -> None:
                              "verifying but whose cache was lost (preview unless --apply)")
     parser.add_argument("--apply", action="store_true",
                         help="Write the changes a --backfill-* preview would make")
+    parser.add_argument("--all-lists", action="store_true",
+                        help="Process all lists in one run instead of halting on the first unfinished list")
     args = parser.parse_args()
 
     state = load_state()
@@ -1423,6 +1425,17 @@ def _run(args, state: dict) -> None:
             failures[title] = entry["last_error"]
             save_state(state)
             print(f"\n!! LIST \"{title}\" FAILED — continuing with remaining lists")
+
+        # Strict sequential progression: finish one list completely before starting
+        # or advancing another list. If this list is still in progress (e.g. paused
+        # at the daily verification cap or awaiting personalization), stop here so
+        # subsequent lists are not touched until this list reaches 'done'.
+        if not getattr(args, "all_lists", False) and not args.list and entry.get("stage") != "done":
+            print(
+                f"\n[SEQUENTIAL LOCK] List \"{title}\" is still in progress (stage: {entry['stage']}). "
+                "Halting pipeline run so current list finishes completely before newer lists start."
+            )
+            break
 
     # Refresh the local report and mirror it to Drive after every run.
     finalize_report(args)

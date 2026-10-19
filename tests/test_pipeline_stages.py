@@ -515,3 +515,72 @@ def test_the_verified_upload_guard_checks_content_too(upload_env):
               [{"primary_email": "a@x.com", "company": "Different Co"}])
     rp.stage_upload_verified("July 1", entry, args)
     assert len(uploads) == 2
+
+
+# ---------------------------------------------------------------------------
+# Strict sequential processing
+# ---------------------------------------------------------------------------
+
+
+def test_run_halts_when_active_list_is_not_done(monkeypatch):
+    processed = []
+
+    def fake_process_list(title, entry, args, state):
+        processed.append(title)
+        entry["stage"] = "verifying"  # still in progress
+
+    monkeypatch.setattr(rp, "process_list", fake_process_list)
+    monkeypatch.setattr(rp, "finalize_report", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "reconcile_list_with_drive", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "discover", lambda state, args: ["List 1", "List 2"])
+
+    state = {
+        "lists": {
+            "List 1": {"slug": "l1", "stage": "verifying", "discovered_at": "2026-08-01", "drive_mtime": "2026-08-01"},
+            "List 2": {"slug": "l2", "stage": "discovered", "discovered_at": "2026-08-02", "drive_mtime": "2026-08-02"},
+        }
+    }
+    args = Namespace(
+        backfill_rejected=False,
+        backfill_contacted=False,
+        list=None,
+        all_lists=False,
+        local_only=True,
+    )
+
+    rp._run(args, state)
+    assert processed == ["List 1"]
+
+
+def test_run_continues_to_next_list_if_active_list_reaches_done(monkeypatch):
+    processed = []
+
+    def fake_process_list(title, entry, args, state):
+        processed.append(title)
+        if title == "List 1":
+            entry["stage"] = "done"
+        else:
+            entry["stage"] = "verifying"
+
+    monkeypatch.setattr(rp, "process_list", fake_process_list)
+    monkeypatch.setattr(rp, "finalize_report", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "reconcile_list_with_drive", lambda *a, **k: None)
+    monkeypatch.setattr(rp, "discover", lambda state, args: ["List 1", "List 2"])
+
+    state = {
+        "lists": {
+            "List 1": {"slug": "l1", "stage": "verifying", "discovered_at": "2026-08-01", "drive_mtime": "2026-08-01"},
+            "List 2": {"slug": "l2", "stage": "discovered", "discovered_at": "2026-08-02", "drive_mtime": "2026-08-02"},
+        }
+    }
+    args = Namespace(
+        backfill_rejected=False,
+        backfill_contacted=False,
+        list=None,
+        all_lists=False,
+        local_only=True,
+    )
+
+    rp._run(args, state)
+    assert processed == ["List 1", "List 2"]
+
