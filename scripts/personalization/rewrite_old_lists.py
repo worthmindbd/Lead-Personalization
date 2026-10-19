@@ -29,6 +29,7 @@ from lead_personalization.research import social_channel  # noqa: E402
 from lead_personalization.segments import segment_for_category  # noqa: E402
 
 LIST_SPECS = [
+    {"title": "Aug 13,2026", "slug": "aug-13-2026", "drive_file": "aug-13-2026-enriched.csv"},
     {"title": "July 31,2026", "slug": "july-31-2026", "drive_file": "july-31-2026-enriched.csv"},
     {"title": "July 25,2026", "slug": "july-25-2026", "drive_file": "july-25-2026-enriched.csv"},
     {"title": "July 20,2026", "slug": "july-20-2026", "drive_file": "july-20-2026-enriched.csv"},
@@ -46,6 +47,11 @@ def extract_snippet(evidence: str, research_signal: str, meta: str) -> str:
     if m:
         return m.group(1).strip()
     return (meta or "").strip()
+
+
+def rclone_clean_md(drive_folder: str) -> None:
+    cmd = ["rclone", "delete", "--include", "*.md", f"gdrive:Personalized leads/{drive_folder}"]
+    subprocess.run(cmd, capture_output=True, text=True)
 
 
 def rclone_upload(local_path: Path, drive_path: str) -> bool:
@@ -184,6 +190,8 @@ def rewrite_list(spec: dict, pack, upload: bool = False) -> dict:
 
     # Drive sync if requested
     if upload:
+        rclone_clean_md(title)
+        rclone_upload(review_path, f"{title}/{review_path.name}")
         drive_dest = f"{title}/{spec['drive_file']}"
         rclone_upload(csv_path, drive_dest)
 

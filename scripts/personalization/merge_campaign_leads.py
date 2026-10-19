@@ -11,8 +11,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from scripts.personalization.clean_gmb_leads import is_departmental_email
 
 SOURCE_FILES = [
+    ("Aug 13, 2026", ROOT / "leads/pipeline/aug-13-2026/aug-13-2026-enriched.csv"),
     ("July 31, 2026", ROOT / "leads/pipeline/july-31-2026/july-31-2026-enriched.csv"),
     ("July 25, 2026", ROOT / "leads/pipeline/july-25-2026/july-25-2026-enriched.csv"),
     ("July 20, 2026", ROOT / "leads/pipeline/july-20-2026/july-20-2026-enriched.csv"),
@@ -32,6 +37,7 @@ def merge_leads(out_path: Path = DEFAULT_OUT) -> tuple[int, int]:
     seen_emails = set()
     total_raw = 0
     dupes_skipped = 0
+    dept_skipped = 0
 
     print("Merging enriched lists:")
     for label, file_path in SOURCE_FILES:
@@ -51,6 +57,9 @@ def merge_leads(out_path: Path = DEFAULT_OUT) -> tuple[int, int]:
                 total_raw += 1
                 email = (row.get("primary_email") or row.get("Email") or "").split("|")[0].strip().lower()
                 if email:
+                    if is_departmental_email(email):
+                        dept_skipped += 1
+                        continue
                     if email in seen_emails:
                         dupes_skipped += 1
                         continue
@@ -70,6 +79,7 @@ def merge_leads(out_path: Path = DEFAULT_OUT) -> tuple[int, int]:
 
     print("\nMerge complete:")
     print(f"  Total raw rows scanned: {total_raw}")
+    print(f"  Departmental inboxes removed: {dept_skipped}")
     print(f"  Cross-list duplicates removed: {dupes_skipped}")
     print(f"  Final unique leads in merged file: {len(all_rows)}")
     print(f"  Saved to: {out_path}")
