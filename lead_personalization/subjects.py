@@ -12,6 +12,7 @@ import re
 
 from lead_personalization.qa import (  # noqa: F401 — FUNCTION_WORDS re-exported below
     FUNCTION_WORDS,
+    company_name_in_subject,
     junk_hook_reasons,
     subject_has_spam,
     subject_is_fragment,
@@ -169,6 +170,7 @@ def build_subject(
     still has to clear ``subject_has_spam`` and the length cap.
     """
     used_subjects = used_subjects or set()
+    company = (row.get("company_name") or "").strip()
     city = (row.get("City") or "").strip()
     category = (row.get("First_category") or "").strip()
     meta = (row.get("Meta_Description") or "").strip()
@@ -213,16 +215,27 @@ def build_subject(
             and not subject_has_spam(subj)
             and not subject_is_fragment(subj)
             and not junk_hook_reasons(subj)
+            and not (company and company_name_in_subject(subj, company))
         ):
             used_subjects.add(subj)
             return subj
 
     safe = _clean(hook or category or "your project clips", 40).lower()
-    if subject_is_fragment(safe) or subject_has_spam(safe) or junk_hook_reasons(safe):
-        # The raw hook landed on a function word or carries a spam trigger;
-        # prefer the category or a generic phrase over a broken send.
+    if (
+        subject_is_fragment(safe)
+        or subject_has_spam(safe)
+        or junk_hook_reasons(safe)
+        or (company and company_name_in_subject(safe, company))
+    ):
+        # The raw hook landed on a function word, carries a spam trigger, or
+        # leaks the company name; prefer the category or generic phrase.
         safe = _clean(category or "your project clips", 40).lower()
-    if subject_has_spam(safe) or subject_is_fragment(safe) or junk_hook_reasons(safe):
+    if (
+        subject_has_spam(safe)
+        or subject_is_fragment(safe)
+        or junk_hook_reasons(safe)
+        or (company and company_name_in_subject(safe, company))
+    ):
         safe = "video workflow question"
     used_subjects.add(safe)
     return safe[:50]

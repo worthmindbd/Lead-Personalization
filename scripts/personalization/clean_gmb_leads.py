@@ -105,6 +105,38 @@ PLACEHOLDER_DOMAINS = {
 }
 CLOSED_STATUSES = {"closed permanently", "permanently closed", "closed"}
 
+# Departmental / role-based inbox prefixes that are not a person's direct
+# address.  Leads with these emails are removed during cleaning — they route
+# to shared queues (support desks, HR portals, sales inboxes) where cold email
+# is triaged or discarded before reaching a decision-maker.  noreply@ is an
+# outbound-only mailbox that rejects or silently discards incoming mail.
+#
+# info@ is deliberately absent: many small businesses use it as their primary
+# contact and the owner reads it directly.  Reoon decides deliverability later;
+# we only remove addresses that are structurally unlikely to reach a person.
+DEPARTMENTAL_EMAIL_PREFIXES = frozenset({
+    "support", "help", "ticket", "admin", "sales", "contact",
+    "marketing", "hr", "jobs", "careers", "team", "office",
+    "noreply",
+})
+
+
+def is_departmental_email(email: str) -> bool:
+    """True when the local-part matches a known departmental prefix.
+
+    Exact match or prefix+digits ("sales2@", "support1@") — the same shape
+    ``is_generic_email`` uses — but without false positives on real names
+    ("salesperson@", "helpful@").
+    """
+    if not email or "@" not in email:
+        return False
+    local = email.split("@", 1)[0].lower()
+    local = re.sub(r"[^a-z0-9]", "", local)
+    return any(
+        local == p or (local.startswith(p) and local[len(p):].isdigit())
+        for p in DEPARTMENTAL_EMAIL_PREFIXES
+    )
+
 
 def extract_emails(raw: str) -> list[str]:
     if not raw or (isinstance(raw, float) and pd.isna(raw)):
@@ -178,6 +210,10 @@ def clean_gmb_leads(
     before = len(df)
     df = df[~df["Email"].apply(is_placeholder)].copy()
     stats["removed_placeholder_email"] = before - len(df)
+
+    before = len(df)
+    df = df[~df["Email"].apply(is_departmental_email)].copy()
+    stats["removed_departmental_email"] = before - len(df)
 
     if require_website:
         before = len(df)

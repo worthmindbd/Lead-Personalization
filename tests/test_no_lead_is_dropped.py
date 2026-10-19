@@ -232,16 +232,72 @@ def test_cleaning_still_drops_what_cannot_be_mailed(tmp_path) -> None:
     assert list(out["Email"]) == ["real@lakeview.com"]
 
 
-def test_a_role_address_is_kept(tmp_path) -> None:
-    """Placeholder means an unreachable *domain* (example.com), not a prefix.
-    info@ and noreply@ are real inboxes at a real domain, so they stay — Reoon
-    decides deliverability later, on evidence rather than on the local part."""
+def test_info_at_survives_cleaning(tmp_path) -> None:
+    """info@ is many small businesses' primary inbox — the owner reads it
+    directly.  It stays while other departmental prefixes are removed."""
     source = _raw_export(
         tmp_path,
-        [_gmb_row("info@lakeview.com"), _gmb_row("noreply@othersite.com")],
+        [_gmb_row("info@lakeview.com")],
     )
     out = clean_gmb_leads(source, tmp_path / "out.csv")
-    assert set(out["Email"]) == {"info@lakeview.com", "noreply@othersite.com"}
+    assert list(out["Email"]) == ["info@lakeview.com"]
+
+
+def test_noreply_at_is_removed(tmp_path) -> None:
+    """noreply@ is an outbound-only mailbox — incoming mail is rejected or
+    silently discarded.  Sending cold email to it is a guaranteed waste."""
+    source = _raw_export(
+        tmp_path,
+        [_gmb_row("noreply@othersite.com"), _gmb_row("owner@lakeview.com")],
+    )
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert list(out["Email"]) == ["owner@lakeview.com"]
+
+
+@pytest.mark.parametrize("prefix", [
+    "support", "help", "ticket", "admin", "sales", "contact",
+    "marketing", "hr", "jobs", "careers", "team", "office",
+    "noreply",
+])
+def test_departmental_emails_are_removed(tmp_path, prefix: str) -> None:
+    """Shared-queue inboxes route cold email to a triage queue or discard it.
+    Each departmental prefix is removed independently so a regression in one
+    cannot hide behind another passing."""
+    source = _raw_export(
+        tmp_path,
+        [_gmb_row(f"{prefix}@lakeview.com"), _gmb_row("owner@lakeview.com")],
+    )
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert list(out["Email"]) == ["owner@lakeview.com"]
+
+
+def test_info_at_is_not_treated_as_departmental(tmp_path) -> None:
+    """info@ is many small businesses' primary inbox — the owner reads it
+    directly.  It was deliberately excluded from the departmental blocklist."""
+    source = _raw_export(tmp_path, [_gmb_row("info@lakeview.com")])
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert list(out["Email"]) == ["info@lakeview.com"]
+
+
+def test_departmental_prefix_with_digits_is_still_removed(tmp_path) -> None:
+    """sales2@ and support1@ are the same shared queue with a numbered alias."""
+    source = _raw_export(
+        tmp_path,
+        [_gmb_row("sales2@lakeview.com"), _gmb_row("owner@lakeview.com")],
+    )
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert list(out["Email"]) == ["owner@lakeview.com"]
+
+
+def test_real_names_starting_with_departmental_prefixes_survive(tmp_path) -> None:
+    """salesperson@ and helpful@ are real personal addresses that happen to
+    start with a blocked prefix — the digit-suffix guard must not catch them."""
+    source = _raw_export(
+        tmp_path,
+        [_gmb_row("salesperson@lakeview.com"), _gmb_row("helpful@lakeview.com")],
+    )
+    out = clean_gmb_leads(source, tmp_path / "out.csv")
+    assert set(out["Email"]) == {"salesperson@lakeview.com", "helpful@lakeview.com"}
 
 
 def test_the_per_domain_cap_is_still_enforced(tmp_path) -> None:

@@ -54,3 +54,7 @@ credentials.json
 /Report.csv
 /Enrichment-Reports.csv
 
+# Standalone ListMonk Pro project
+/listmonk_pro/
+
+
