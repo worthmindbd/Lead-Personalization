@@ -4,15 +4,15 @@
   "greeting": "Hi,",
   "openers": {
     "linkedin_posts": [
-      "Saw your recent LinkedIn post (\"{snippet}\"), so video is clearly already part of how you show up. The lever from here is usually the finish, not more posting.",
-      "Your recent LinkedIn post (\"{snippet}\") caught my eye. Teams posting that consistently usually gain the most from sharper finishing on the video side."
+      "Your recent LinkedIn note regarding \"{snippet}\" caught my eye. Teams posting that consistently usually gain the most from sharper finishing on the video side.",
+      "Your recent LinkedIn post (\"{snippet}\") hit on an operational gap most teams gloss over: turning consistent discussion into high-retention video."
     ],
     "site_video": [
-      "Noticed your site already runs video, which puts you ahead of most {peer} in {loc}. The gap is usually the finish: pacing, hooks, and captions built for each platform.",
+      "Your site already runs video, putting you ahead of most {peer} in {loc}. The gap is usually the finish: pacing, hooks, and captions built for each platform.",
       "Your site embeds video, and that is rarer than it should be for {peer} in {loc}. What separates a view from an inquiry is almost always the finishing, not the footage."
     ],
     "social_video": [
-      "Saw the {channel} link on your site, but the site itself does not lead with video, and that is usually the first place buyers look.",
+      "The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google.",
       "You are set up on {channel}, yet the website carries no video. For {peer}, that is often the gap between a visit and an inquiry."
     ],
     "positioning": [
