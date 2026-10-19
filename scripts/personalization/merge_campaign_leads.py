@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from scripts.personalization.clean_gmb_leads import is_departmental_email
 
 SOURCE_FILES = [
-    ("Aug 13, 2026", ROOT / "leads/pipeline/aug-13-2026/aug-13-2026-enriched.csv"),
     ("July 31, 2026", ROOT / "leads/pipeline/july-31-2026/july-31-2026-enriched.csv"),
     ("July 25, 2026", ROOT / "leads/pipeline/july-25-2026/july-25-2026-enriched.csv"),
     ("July 20, 2026", ROOT / "leads/pipeline/july-20-2026/july-20-2026-enriched.csv"),
