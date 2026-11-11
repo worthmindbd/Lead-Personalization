@@ -13,6 +13,8 @@ import re
 from lead_personalization.qa import (  # noqa: F401 — FUNCTION_WORDS re-exported below
     FUNCTION_WORDS,
     company_name_in_subject,
+    hook_start_is_filler,
+    is_probably_not_english,
     junk_hook_reasons,
     subject_has_spam,
     subject_is_fragment,
@@ -36,34 +38,55 @@ def _clean(text: str, max_len: int = 32) -> str:
         cut = text[:max_len]
         if " " in cut:
             cut = cut[: cut.rfind(" ")]
-        text = cut.rstrip(" ,;:-")
+        text = cut
+    # Always, not only when truncating: prospect text that is already short
+    # enough still arrives as "video production," or "event video &".
+    return _strip_trailing(text)
+
+
+def _strip_trailing(text: str) -> str:
+    """Drop dangling list punctuation and connectors from a phrase's end."""
+    prev = None
+    while text and text != prev:
+        prev = text
+        text = text.rstrip(" ,;:-&+/(.'\"")
+        words = text.split()
+        if words and words[-1] in {"&", "+", "and", "or", "&amp;"}:
+            text = " ".join(words[:-1])
     return text
 
 
-def _trim_to_content_word(text: str, max_len: int = 28, min_words: int = 2) -> str:
-    """Trim ``text`` to at most ``max_len`` chars ending on a content word.
+def _trim_to_content_word(text: str, max_len: int = 36, min_words: int = 2) -> str:
+    """Fit prospect text into ``max_len`` chars without cutting mid-phrase.
 
-    Prospect-supplied hooks are raw site copy; cutting them at a word boundary
-    (``_clean``) can still land mid-phrase on a function word — "a wide
-    selection of". This walks the words, then trims back past any trailing
-    closed-class words. Returns "" when fewer than ``min_words`` content words
-    remain, so the caller falls back to a literal template rather than ship a
-    fragment.
+    Prospect hooks are raw site copy. A blind word-boundary cut still lands
+    mid-thought ("record something worth", "jillian nielsen is a langley"),
+    so the text is used whole when it fits, else cut at the first natural
+    clause boundary (sentence end, comma, dash, ampersand, pipe) that fits.
+    When neither works it returns "" and the caller uses a literal template:
+    a stock subject beats a broken one.
     """
-    words = (text or "").strip().split()
-    out: list[str] = []
-    length = 0
-    for w in words:
-        add = (length + len(w) + (1 if out else 0))
-        if add > max_len:
-            break
-        out.append(w)
-        length = add
-    while out and out[-1].lower().strip(".,;:") in FUNCTION_WORDS:
-        out.pop()
-    if len(out) < min_words:
+    text = re.sub(r"\s+", " ", (text or "")).strip()
+    if not text:
         return ""
-    return _clean(" ".join(out), max_len).lower()
+    # "Sussex Wedding Photographer. A ..." -> "Sussex Wedding Photographer".
+    # Only the FIRST sentence-level break counts: a comma or a later break
+    # cuts mid-thought ("neuen films creates emotional"), and a hook carrying
+    # two sentences ("your entire event. one team") reads as a pasted tagline.
+    first_break = re.search(r"[.;:!?|]\s|\s[-–|/]\s", text)
+    candidates = [text[: first_break.start()]] if first_break else [text]
+    for cand in candidates:
+        cand = _strip_trailing(cand.strip())
+        if not cand or len(cand) > max_len:
+            continue
+        words = cand.split()
+        while words and words[-1].lower().strip(".,;:&+") in FUNCTION_WORDS:
+            words.pop()
+        content_words = [w for w in words if w.lower().strip(".,;:&+") not in FUNCTION_WORDS]
+        if len(content_words) < min_words:
+            continue
+        return _clean(" ".join(words), max_len).lower()
+    return ""
 
 
 def _usable_hook(hook: str) -> str:
@@ -75,7 +98,11 @@ def _usable_hook(hook: str) -> str:
     the caller falls through to a literal template instead.
     """
     hook = (hook or "").strip()
-    if not hook or junk_hook_reasons(hook):
+    if not hook or junk_hook_reasons(hook) or hook_start_is_filler(hook):
+        return ""
+    if is_probably_not_english(hook):
+        return ""
+    if re.search(r"[#*_<>{}\[\]=]", hook):
         return ""
     return hook
 
@@ -176,9 +203,9 @@ def build_subject(
     meta = (row.get("Meta_Description") or "").strip()
     if hook:
         # A caller-supplied hook is the same kind of prospect text the
-        # extractors below pull from meta/signal, so trim it the same coherent
-        # way — to a prefix that ends on a content word, not a blind word slice.
-        hook = _trim_to_content_word(hook)
+        # extractors below pull from meta/signal, so trim and vet it the same
+        # way: a whole clause or nothing, and never junk or filler.
+        hook = _usable_hook(_trim_to_content_word(hook))
     hook = hook or _hook_from_signal(signal) or _hook_from_meta(meta)
 
     fallback = subject_templates["general"]
@@ -189,6 +216,9 @@ def build_subject(
 
     candidates: list[str] = []
     for tmpl in templates:
+        if "{city}" in tmpl and not city:
+            # "your market studio edits" reads as an unfilled mail merge.
+            continue
         subj = _fill(tmpl, city, hook, category)
         if subj and subj not in used_subjects:
             candidates.append(subj)

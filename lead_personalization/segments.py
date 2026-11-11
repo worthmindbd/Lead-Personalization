@@ -13,6 +13,17 @@ MACRO_SEGMENTS = {
         "forbidden_angles": ["listing tours", "property walkthroughs", "medical procedure demos"],
         "signal_sources": ["website portfolio", "case studies", "Instagram reels", "client logos"],
     },
+    # Video producers, photographers, and studios already make video, so the
+    # "your site has no video" angle insults them. They buy edit capacity:
+    # white-label overflow so they can book more shoots.
+    "production_studios": {
+        "label": "Video / Photo / Audio Production Studios",
+        "pillar": "Pillar 1",
+        "angle": "White-label overflow editing, color, and sound for studios that already shoot",
+        "value_lens": "make_money",
+        "forbidden_angles": ["your site has no video", "you should start making video"],
+        "signal_sources": ["portfolio", "showreel", "YouTube/Vimeo", "Instagram"],
+    },
     "real_estate": {
         "label": "Real Estate",
         "pillar": "Pillar 3",
@@ -122,10 +133,22 @@ _add(
     "creative_marketing",
     "Marketing agency", "Advertising agency", "Public relations firm", "Design agency",
     "Branding agency", "Internet marketing service", "Marketing consultant",
-    "Media company", "Video production service", "Website designer", "Graphic designer",
-    "Commercial photographer", "Photographer", "Photography studio", "Publisher",
+    "Media company", "Website designer", "Graphic designer", "Publisher",
     "Promotional products supplier", "Market researcher", "E commerce agency",
     "Print shop",
+)
+_add(
+    "production_studios",
+    "Video production service", "Videographer", "Wedding videographer",
+    "Video editing service", "Film production company", "Movie studio",
+    "Animation studio", "Video duplication service", "Photographer",
+    "Wedding photographer", "Commercial photographer", "Photography studio",
+    "Photography service", "Aerial photographer", "Portrait studio",
+    "Drone service", "Aerial photography service", "Recording studio",
+    "Audio visual consultant", "Audio visual equipment rental service",
+    "Sound studio", "Music producer", "Podcast studio", "Live music production",
+    "Event photographer", "Fashion photographer", "Food photographer",
+    "Real estate photographer", "Photo booth", "Photo lab", "Film studio",
 )
 _add(
     "real_estate",
@@ -804,9 +827,20 @@ def is_plausible_last_name(name: str) -> bool:
     low = token.lower()
     if low in NOT_PERSON_NAME_TOKENS or low in BUSINESS_FRAGMENT_WORDS:
         return False
+    if low in BUSINESS_SURNAME_WORDS:
+        # "Lovelenscapes Photography" split into first/last name.
+        return False
     if looks_like_business(token):
         return False
     return True
+
+
+# Category words that land in last_name when a brand is split as a person name.
+BUSINESS_SURNAME_WORDS = frozenset({
+    "photography", "photo", "photos", "films", "film", "video", "videos",
+    "videography", "productions", "production", "weddings", "studios",
+    "creative", "designs", "homes", "events", "pictures", "media", "realty",
+})
 
 
 def resolve_outreach_tier(
@@ -825,7 +859,79 @@ def resolve_outreach_tier(
     return "person"
 
 
+def _name_is_the_brand(first_name: str, company_name: str) -> bool:
+    """"Lovelenscapes" from "Lovelenscapes Photography" is the brand, not a
+    person. An allowlisted given name ("Jane" in "Jane Smith Photography") is
+    still a person; anything else that also names the company is not."""
+    name = (first_name or "").strip().lower()
+    company_tokens = re.findall(r"[a-z]+", (company_name or "").lower())
+    return bool(name) and name not in GIVEN_NAMES and name in company_tokens
+
+
+COMPANY_GREETINGS = ("Hi,", "Hey,", "Hello,")
+PERSON_GREETINGS = ("Hi {name},", "Hey {name},", "Hello {name},", "{name},")
+
+
 def greeting_template(tier: str, first_name: str, company_name: str, email: str = "") -> str:
-    if tier == "person" and is_plausible_first_name(first_name, email):
-        return f"Hi {first_name.strip()},"
-    return "Hi,"
+    """Rotated greeting, stable per lead (keyed on the address).
+
+    Person tier: "Hi/Hey/Hello {name}," or "{name},". Everyone else gets a bare
+    "Hi,/Hey,/Hello," and goes straight into the first line: never the company
+    name, never "team". ``company_name`` is only used to catch a brand parsed
+    as a first name ("Lovelenscapes" from "Lovelenscapes Photography").
+    """
+    import hashlib
+
+    digest = int(hashlib.md5(f"greeting:{email}".encode(), usedforsecurity=False).hexdigest(), 16)
+    if tier == "person" and is_plausible_first_name(first_name, email) and not _name_is_the_brand(
+        first_name, company_name
+    ):
+        pattern = PERSON_GREETINGS[digest % len(PERSON_GREETINGS)]
+        return pattern.format(name=first_name.strip())
+    return COMPANY_GREETINGS[digest % len(COMPANY_GREETINGS)]
+
+
+# GMB categories are singular and often end in a generic head noun
+# ("Video production service"). Copy needs a plural peer group that reads
+# naturally in "most {peer} in {loc}".
+_PEER_HEAD_PLURALS = {
+    "service": "businesses", "services": "businesses", "company": "companies",
+    "agency": "agencies", "studio": "studios", "center": "centers",
+    "centre": "centres", "shop": "shops", "store": "stores", "clinic": "clinics",
+    "firm": "firms", "office": "offices", "venue": "venues", "school": "schools",
+    "consultant": "consultants", "contractor": "contractors", "dealer": "dealers",
+    "builder": "builders", "designer": "designers", "photographer": "photographers",
+    "videographer": "videographers", "agent": "agents", "broker": "brokers",
+    "dentist": "dentists", "lawyer": "lawyers", "attorney": "attorneys",
+    "architect": "architects", "planner": "planners", "producer": "producers",
+    "manufacturer": "manufacturers", "supplier": "suppliers", "salon": "salons",
+    "spa": "spas", "gym": "gyms", "restaurant": "restaurants", "hotel": "hotels",
+    "developer": "developers", "therapist": "therapists", "coach": "coaches",
+    "trainer": "trainers", "practice": "practices", "group": "groups",
+    "club": "clubs", "brand": "brands", "boutique": "boutiques",
+    "booth": "booth businesses", "lab": "labs", "rental": "rental businesses",
+    "chiropractor": "chiropractors", "realtor": "realtors", "gallery": "galleries",
+}
+PEER_FALLBACK = "businesses like yours"
+
+
+def peer_phrase(category: str) -> str:
+    """Plural peer group for a GMB category: "Wedding photographer" ->
+    "wedding photographers", "Video production service" -> "video production
+    businesses"."""
+    cat = re.sub(r"\s+", " ", (category or "").strip().lower())
+    if not cat:
+        return PEER_FALLBACK
+    words = cat.split()
+    head = words[-1]
+    if head in _PEER_HEAD_PLURALS:
+        words[-1] = _PEER_HEAD_PLURALS[head]
+    elif head.endswith("s"):
+        pass
+    elif head.endswith(("er", "or", "ist", "ian", "ant", "ent")):
+        words[-1] = head + "s"
+    elif head.endswith("y") and head[-2:-1] not in "aeiou":
+        words[-1] = head[:-1] + "ies"
+    else:
+        words[-1] = head + " businesses"
+    return " ".join(words)

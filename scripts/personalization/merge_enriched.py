@@ -13,12 +13,33 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from lead_personalization import fsutil  # noqa: E402
+from lead_personalization.qa import campaign_repetition, repetition_warnings  # noqa: E402
 from personalization import artifacts  # noqa: E402
 from personalization.manifest_lock import manifest_lock  # noqa: E402
 
 ENRICHED_DIR = ROOT / "leads" / "enriched"
 DEFAULT_OUT = ROOT / "leads" / "all-leads-with-email-enriched.csv"
 MANIFEST = artifacts.manifest_path()
+
+
+def report_repetition(rows: list[dict]) -> list[str]:
+    """Warn when a list's copy collapses onto a few subjects or paragraphs.
+
+    Per-lead QA cannot see this: every lead can pass while hundreds share the
+    same follow-up subject. Warnings only; nothing is dropped or blocked.
+    """
+    sequences = []
+    for row in rows:
+        seq = [
+            (row.get(f"email_{i}_subject") or "", row.get(f"email_{i}_body") or "")
+            for i in (1, 2, 3)
+        ]
+        if any(subject or body for subject, body in seq):
+            sequences.append(seq)
+    warnings = repetition_warnings(campaign_repetition(sequences))
+    for warning in warnings:
+        print(f"Warning (copy repetition): {warning}", file=sys.stderr)
+    return warnings
 
 
 def merge_enriched(
@@ -82,6 +103,7 @@ def merge_enriched(
 
     print(f"Merged {len(files)} batch files -> {len(all_rows)} rows")
     print(f"Output: {output_path}")
+    report_repetition(all_rows)
 
     if manifest_path.exists():
         with manifest_lock(manifest_path):

@@ -37,25 +37,15 @@ Every offer must map to at least one:
 2. Save money  
 3. Make more money  
 
-If none apply honestly, do not force outreach—flag the lead as low fit.
+If none apply honestly, use the honest weak-signal fallback opener. A mailable lead is never dropped or skipped.
 
-## Client-centric mandate (Avoid "I / We / My")
+## Client-centric mandate (client first line)
 
-Always talk about the client, their business, their market, or their observable assets.
+The **first line** after the greeting (opener, second angle, closer) is about the client: their business, category, market, or observable assets. It never starts with *I / We / My / Our*, and no line uses stock sender-centric phrases: *"caught my eye"*, *"I noticed"*, *"I came across"*, *"I was looking at"*, *"I am reaching out"*, *"My name is"*, *"We help companies like yours"*. Enforced by `qa.opener_is_client_centric` (QA issue `sender_centric_opener`) and at offer-pack load.
 
-**STRICT PROHIBITION**: Never use sender-centered language like:
-- *"I do..."*
-- *"I work..."*
-- *"I would..."*
-- *"I want..."*
-- *"I noticed I could..."*
-- *"I was looking at..."*
-- *"I am reaching out..."*
-- *"We help companies like yours..."*
-- *"My name is..."*
-- Any *"I bla bla"*
+The solution line may say what "we" do ("We finish the footage you already shoot..."): that is plain, honest copy, not sender-centric filler.
 
-The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
+The first line must be a specific, **verifiable** observation, asset gap, local market reality, or operational point. Never claim more than research checked (a linked Instagram is "set up on Instagram", not "consistent weekly work"), and never quote prospect text that fails `qa.snippet_reject_reasons` (error pages, addresses, nav/CTA labels, questions, person names, filler, markup, non-English, mid-sentence cuts).
 
 ## Banned phrases and patterns
 
@@ -78,14 +68,14 @@ Never use:
 ## High-performing icebreaker styles
 
 ### Named Contacts (`person` tier)
-- **LinkedIn Observation**: *"Your recent LinkedIn note regarding {snippet} hit on an operational gap most teams gloss over..."*
+- **LinkedIn Observation**: *"Your recent LinkedIn post, \"{snippet}\", is the kind of point that usually reaches more people as a short captioned clip than as text alone."* (`{snippet}` is a complete sentence or clause, never cut mid-sentence)
 - **On-Site Asset Observation**: *"Your current project gallery shows substantial portfolio depth, but the walkthrough clips on the landing page still rely on static title cards..."*
 - **Positioning Contrast**: *"Your site leads with \"{snippet}\", which is clear positioning that most {peer} in {loc} never back up with finished video."*
 
 ### Company-Only & Google Maps Leads (`company` tier)
-- **Google Maps Review Volume & Reputation**: *"Over {review_count} verified reviews in {loc} with a {rating} average is a rare track record for {category}. The customer feedback consistently highlights technician punctuality rather than just basic pricing."*
+- **Google Maps Review Volume & Reputation**: *"Over {review_count} verified reviews in {loc} with a {rating} average is a rare track record for {category}."* (only with real review data on the row; never describe review content research did not read)
 - **On-Site Media Gap (Photos vs. Video)**: *"The portfolio on your site highlights extensive project work, yet the landing pages rely almost entirely on still photography. For commercial inquiries, short site-walk reels tend to answer client questions before the initial consultation."*
-- **Social vs. Website Video Disconnect**: *"The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google."*
+- **Social vs. Website Video Disconnect**: *"Your {channel} is linked from your listing, but the website itself carries no video. Visitors who arrive from Google never see the work your followers do."*
 - **Category Peer Baseline (Weak-signal fallback)**: *"Most {peer} in {loc} sit on usable walkthrough footage and phone clips from active projects that never become finished client-facing video."*
 
 ## Subject lines
@@ -95,7 +85,7 @@ Never use:
 - **Specific > clever** — anchor on city, category, meta description, or research signal (not company name + generic noun)
 - **No spam triggers** — avoid: free, guarantee, urgent, act now, limited time, click here, winner, discount, last chance, `!!!`, fake `Re:`/`Fwd:`
 - **No generic openers** — avoid `Quick question` unless email 3 body asks one specific question
-- **Unique per step** — email 1 = signal hook; email 2 = alternate angle; email 3 = workflow/backlog question
+- **Unique per step** — email 1 = signal hook; email 2 = new angle + one proof point; email 3 = workflow/backlog question
 - Generated via `scripts/personalization/subjects.py` segment templates + signal/meta hooks
 
 Good patterns (from pilot examples):
@@ -142,10 +132,10 @@ Map pillars to prospect segment using [segments.md](segments.md) and `OFFER.md` 
 
 | Tier | When | Greeting | Company name |
 |------|------|----------|--------------|
-| **Person** | `outreach_tier: person` | `Hi {first_name},` | In body when relevant |
-| **Company** | GMB / generic inbox / business name only | `Hi,` | **Never** — not in greeting, subject, or body |
+| **Person** | `outreach_tier: person` | `{Hi\|Hey\|Hello} {first_name},` or `{first_name},` | **Never** in greeting, subject, or body |
+| **Company** | GMB / generic inbox / business name only | `Hi,` / `Hey,` / `Hello,` | **Never** in greeting, subject, or body |
 
-**Company tier (Google Maps lists):** Do not use `Hi team at {company},` and do not paste the business name into the body — pulled from a scraped list, it reads as mail merge, not familiarity. Open with `Hi,` then lead with a specific observation in second person: "your site", "your homepage", "your Instagram", "your portfolio". QA flags any company-name occurrence in the body (`company_name_in_body`).
+**Company tier (Google Maps lists):** Do not use `Hi team at {company},` and do not paste the business name into the body — pulled from a scraped list, it reads as mail merge, not familiarity. Open with a bare rotated greeting (`Hi,` / `Hey,` / `Hello,`) then lead with a specific observation in second person: "your site", "your homepage", "your Instagram", "your portfolio". QA flags any company-name occurrence in the body (`company_name_in_body`).
 
 Company tier must never invent a person's name. Normalize leads before writing copy.
 

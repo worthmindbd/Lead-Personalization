@@ -1,11 +1,14 @@
 """Deterministic copy engine: assemble 3-email sequences from an offer pack.
 
 Copy contract (dual-tier):
-- Greeting is "Hi {first_name}," for person-tier leads (named contact with a
-  non-generic address) and "Hi," for company-tier leads — and the company name
-  never appears in the body either way.
-- Emails 1-2 follow observed issue -> our solution -> soft CTA. Email 3 is the
-  breakup (closer + support line + question) and carries no new observation.
+- Greeting rotates per lead: "{Hi|Hey|Hello} {first_name}," or "{first_name},"
+  for person-tier leads (named contact with a non-generic address), and a bare
+  "Hi,/Hey,/Hello," for company-tier leads. The company name never appears in
+  the greeting or body.
+- The first line after the greeting is about the client, never the sender.
+- Email 1: observation -> what we do -> soft CTA. Email 2: new angle -> one
+  concrete proof point -> soft CTA. Email 3 is the breakup (closer + support
+  line + question) and carries no new observation.
 - Openers, solutions, and CTAs are drawn from the offer pack's variant pools,
   selected deterministically per lead (stable re-runs, campaign-wide variety).
 
@@ -20,9 +23,24 @@ import re
 import sys
 
 from lead_personalization.offer_pack import FALLBACK_SEGMENT, OfferPack
-from lead_personalization.qa import qa, sequence_issues, subject_has_spam, subject_is_fragment
+
+# Segment that a row's category overrides into even when its stored
+# aevora_segment predates it (see resolve_segment).
+STUDIO_SEGMENT = "production_studios"
+from lead_personalization.qa import (
+    contains_forbidden,
+    qa,
+    sequence_issues,
+    subject_has_spam,
+    subject_is_fragment,
+)
 from lead_personalization.sanitize import sanitize_email
-from lead_personalization.segments import canonical_segment, greeting_template
+from lead_personalization.segments import (
+    canonical_segment,
+    greeting_template,
+    peer_phrase,
+    segment_for_category,
+)
 from lead_personalization.subjects import build_subject
 
 
@@ -30,11 +48,6 @@ def _pick(pool: list[str], key: str, salt: str) -> tuple[str, int]:
     digest = int(hashlib.md5(f"{salt}:{key}".encode(), usedforsecurity=False).hexdigest(), 16)
     idx = digest % len(pool)
     return pool[idx], idx
-
-
-def peer_phrase(category: str) -> str:
-    cat = (category or "").strip().lower()
-    return f"{cat} teams" if cat else "teams in your space"
 
 
 def trim_body(greeting: str, parts: list[str], cta: str, max_words: int = 100) -> str:
@@ -69,6 +82,111 @@ def _company_ref(row: dict, research: dict) -> str:
     return (row.get("company_name") or research.get("company") or "").strip()
 
 
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def resolve_loc(row: dict, research: dict) -> str:
+    """City, else state, else a neutral phrase, never leaking the company name.
+
+    If the company name was parsed as its city, injecting that location would
+    leak the company name into the body. Either direction leaks: "Austin" in
+    "Austin Homes" and "Austin Homes" in "Austin Homes, Texas".
+    """
+    city = (row.get("City") or "").strip()
+    state = (row.get("State") or "").strip()
+    loc = city or state or "your market"
+    company_norm = _norm(_company_ref(row, research))
+    loc_norm = _norm(loc)
+    if company_norm and loc_norm and (loc_norm in company_norm or company_norm in loc_norm):
+        loc = state if (state and _norm(state) not in company_norm) else "your area"
+    return loc
+
+
+def resolve_segment(row: dict, offer_pack: OfferPack, *, warn: bool = False) -> str:
+    """The copy angle for a row.
+
+    Rows normalized before ``production_studios`` existed carry
+    ``creative_marketing`` or ``general`` for studios and photographers; their
+    category still says what they are, so it wins for that one segment.
+    """
+    segment = canonical_segment(row.get("aevora_segment", FALLBACK_SEGMENT))
+    by_category = segment_for_category(row.get("First_category", ""))
+    if by_category == STUDIO_SEGMENT and by_category in offer_pack.segment_copy:
+        return by_category
+    if segment not in offer_pack.segment_copy:
+        if warn:
+            print(
+                f"Warning: unknown aevora_segment {segment!r}; "
+                f"falling back to '{FALLBACK_SEGMENT}' copy.",
+                file=sys.stderr,
+            )
+        segment = FALLBACK_SEGMENT
+    return segment
+
+
+def _render_opener(
+    row: dict, research: dict, offer_pack: OfferPack, segment: str, key: str, *, warn: bool = False
+) -> tuple[str, str, int]:
+    """Pick and fill the opener. Returns (opener, evidence actually used, index)."""
+    evidence = research.get("evidence", "weak")
+    if evidence not in offer_pack.openers:
+        if warn:
+            print(
+                f"Warning: unknown evidence {evidence!r}; falling back to 'weak' openers.",
+                file=sys.stderr,
+            )
+        evidence = "weak"
+    fields = {
+        "peer": peer_phrase(row.get("First_category", "")),
+        "loc": resolve_loc(row, research),
+        "snippet": (
+            research.get("linkedin_topic", "") if evidence == "linkedin_posts"
+            else research.get("snippet", "")
+        ),
+        "channel": research.get("social_channel", "") or "social",
+    }
+    pool = offer_pack.opener_pool(segment, evidence)
+    tmpl, idx = _pick(pool, key, "opener")
+    if "{snippet}" in tmpl and not fields["snippet"]:
+        tmpl = ""  # never render an empty quote: ""
+    try:
+        if tmpl:
+            opener = _sentence_case(tmpl.format(**fields))
+            # A quoted snippet carrying a forbidden word would get the whole
+            # line dropped by sanitize_email, leaving an email with no
+            # observation at all ("Hi,\n\nWe plug in..."). Use the honest
+            # generic line instead.
+            if not contains_forbidden(opener):
+                return opener, evidence, idx
+    except (KeyError, IndexError, ValueError):
+        pass
+    weak = offer_pack.opener_pool(segment, "weak")
+    return _sentence_case(weak[idx % len(weak)].format(**fields)), "weak", idx
+
+
+def _sentence_case(text: str) -> str:
+    """Capitalize the first letter even behind an opening quote:
+    '"how we cut..." from your post' -> '"How we cut..." from your post'."""
+    for i, ch in enumerate(text):
+        if ch.isalpha():
+            return text[:i] + ch.upper() + text[i + 1:]
+    return text
+
+
+def _greeting(row: dict, research: dict, key: str) -> str:
+    # Dual-tier greeting: person tier greets by first name when the row's
+    # normalized tier says a real, named contact is reachable; everything else
+    # gets a bare rotated "Hi,/Hey,/Hello,". greeting_template re-validates the
+    # name and uses the address to corroborate it and to pick the rotation.
+    return greeting_template(
+        research.get("outreach_tier") or row.get("outreach_tier") or "company",
+        research.get("first_name") or row.get("first_name") or "",
+        " ".join(filter(None, (_company_ref(row, research), row.get("Name") or ""))),
+        key,
+    )
+
+
 def generate_sequence(
     row: dict,
     research: dict,
@@ -81,70 +199,24 @@ def generate_sequence(
     ``key_salt`` perturbs the deterministic variant selection; leaving it empty
     reproduces the canonical per-lead copy, while a non-empty value (used by the
     app's "regenerate" action) rotates to a different, still-stable combination.
+
+    Email 1: observation -> what we do -> soft CTA.
+    Email 2: a new angle -> one concrete proof point (not the pitch again) -> CTA.
+    Email 3: breakup closer -> support line -> a question.
     """
     email = (research.get("email") or row.get("primary_email", "")) + key_salt
-    raw_segment = canonical_segment(row.get("aevora_segment", FALLBACK_SEGMENT))
-    if raw_segment not in offer_pack.segment_copy:
-        print(
-            f"Warning: unknown aevora_segment {raw_segment!r}; "
-            f"falling back to '{FALLBACK_SEGMENT}' copy.",
-            file=sys.stderr,
-        )
-        raw_segment = FALLBACK_SEGMENT
-    segment = raw_segment
+    segment = resolve_segment(row, offer_pack, warn=True)
     seg_copy = offer_pack.segment_solutions(segment)
-    evidence = research.get("evidence", "weak")
-    if evidence not in offer_pack.openers:
-        print(
-            f"Warning: unknown evidence {evidence!r}; falling back to 'weak' openers.",
-            file=sys.stderr,
-        )
-        evidence = "weak"
-    snippet = research.get("snippet", "")
-    li_topic = research.get("linkedin_topic", "")
-    channel = research.get("social_channel", "") or "social"
-    company = _company_ref(row, research)
-    city = (row.get("City") or "").strip()
-    state = (row.get("State") or "").strip()
-    loc = city or state or "your market"
-    # If the company name was parsed as its city, injecting that location would
-    # leak the company name into the body — use the state or a neutral phrase.
-    # Either direction leaks: "Austin" in "Austin Homes" and "Austin Homes"
-    # in "Austin Homes, Texas".
-    loc_norm = re.sub(r"[^a-z0-9]", "", loc.lower())
-    company_norm = re.sub(r"[^a-z0-9]", "", (company or "").lower())
-    if company and loc and (loc_norm in company_norm or company_norm in loc_norm):
-        loc = state if (state and re.sub(r"[^a-z0-9]", "", state.lower()) not in company_norm) else "your area"
-    peer = peer_phrase(row.get("First_category", ""))
-
-    # Dual-tier greeting: person tier greets by first name when the row's
-    # normalized tier says a real, named contact is reachable; everything else
-    # gets the safe "Hi,". greeting_template re-validates the name and passes
-    # the address so a name the allowlist misses can still be corroborated.
-    greeting = greeting_template(
-        research.get("outreach_tier") or row.get("outreach_tier") or "company",
-        research.get("first_name") or row.get("first_name") or "",
-        "",
-        email,
-    )
-
-    opener_tmpl, o_idx = _pick(offer_pack.openers[evidence], email, "opener")
-    try:
-        opener = opener_tmpl.format(
-            peer=peer,
-            loc=loc,
-            snippet=(li_topic if evidence == "linkedin_posts" else snippet),
-            channel=channel,
-        )
-    except (KeyError, IndexError, ValueError):
-        opener = offer_pack.openers["weak"][o_idx % len(offer_pack.openers["weak"])].format(
-            peer=peer, loc=loc, snippet=snippet, channel=channel,
-        )
-        evidence = "weak"
+    greeting = _greeting(row, research, email)
+    opener, evidence, o_idx = _render_opener(row, research, offer_pack, segment, email, warn=True)
 
     solution, s_idx = _pick(seg_copy["solutions"], email, "solution")
-    alt_solution = seg_copy["solutions"][(s_idx + 1) % len(seg_copy["solutions"])]
     angle2, a_idx = _pick(seg_copy["second_angle"], email, "angle2")
+    if offer_pack.proof_lines:
+        proof, p_idx = _pick(offer_pack.proof_lines, email, "proof")
+    else:
+        p_idx = (s_idx + 1) % len(seg_copy["solutions"])
+        proof = seg_copy["solutions"][p_idx]
     closer, cl_idx = _pick(offer_pack.closers, email, "closer")
     support, su_idx = _pick(offer_pack.support_lines, email, "support")
     cta1, c1 = _pick(offer_pack.cta_pools[1], email, "cta1")
@@ -153,11 +225,13 @@ def generate_sequence(
 
     plans = [
         [opener, solution, cta1],
-        [angle2, alt_solution, cta2],
+        [angle2, proof, cta2],
         [closer, support, cta3],
     ]
 
-    variant = f"{evidence}.o{o_idx}s{s_idx}a{a_idx}cl{cl_idx}su{su_idx}c{c1}{c2}{c3}"
+    variant = (
+        f"{evidence}.o{o_idx}s{s_idx}a{a_idx}p{p_idx}cl{cl_idx}su{su_idx}c{c1}{c2}{c3}"
+    )
 
     hook = sequence_hook(research)
     sequence: list[tuple[str, str]] = []
@@ -165,8 +239,7 @@ def generate_sequence(
     for step, parts in enumerate(plans, start=1):
         body = trim_body(greeting, parts[:-1], parts[-1])
         # The hook is the lead's one specific observation; repeating it in all
-        # three subjects reads templated ("second angle on X", "closing the
-        # loop on X"). Prefer it on step 1, literals after.
+        # three subjects reads templated. Prefer it on step 1, literals after.
         step_hook = hook if step == 1 else ""
         subj = build_subject(
             row,
@@ -189,29 +262,7 @@ def _retry_body_parts(
     """An alternate deterministic body plan for fix_sequence repair."""
     try:
         seg_copy = offer_pack.segment_solutions(segment)
-        evidence = research.get("evidence", "weak")
-        if evidence not in offer_pack.openers:
-            evidence = "weak"
-        snippet = research.get("snippet", "")
-        li_topic = research.get("linkedin_topic", "")
-        channel = research.get("social_channel", "") or "social"
-        city = (row.get("City") or "").strip()
-        state = (row.get("State") or "").strip()
-        loc = city or state or "your market"
-        company = _company_ref(row, research)
-        loc_norm = re.sub(r"[^a-z0-9]", "", loc.lower())
-        company_norm = re.sub(r"[^a-z0-9]", "", (company or "").lower())
-        if company and loc and (loc_norm in company_norm or company_norm in loc_norm):
-            state_norm = re.sub(r"[^a-z0-9]", "", state.lower())
-            loc = state if (state and state_norm not in company_norm) else "your area"
-        peer = peer_phrase(row.get("First_category", ""))
-        opener_tmpl, _ = _pick(offer_pack.openers[evidence], key, "opener")
-        opener = opener_tmpl.format(
-            peer=peer,
-            loc=loc,
-            snippet=(li_topic if evidence == "linkedin_posts" else snippet),
-            channel=channel,
-        )
+        opener, _, _ = _render_opener(row, research, offer_pack, segment, key)
         solution, _ = _pick(seg_copy["solutions"], key, "solution")
         cta1, _ = _pick(offer_pack.cta_pools[1], key, "cta1")
         return [opener, solution, cta1]
@@ -227,9 +278,7 @@ def fix_sequence(
     *,
     key_salt: str = "",
 ) -> list[tuple[str, str]]:
-    segment = canonical_segment(row.get("aevora_segment", FALLBACK_SEGMENT))
-    if segment not in offer_pack.segment_copy:
-        segment = FALLBACK_SEGMENT
+    segment = resolve_segment(row, offer_pack)
     company = _company_ref(row, research)
     signal = research.get("research_signal", "")
     key = (research.get("email") or row.get("primary_email", "")) + key_salt
@@ -270,12 +319,7 @@ def fix_sequence(
                     retry_parts = _retry_body_parts(row, research, offer_pack, segment, retry_key)
                     if retry_parts is None:
                         continue
-                    greeting = greeting_template(
-                        research.get("outreach_tier") or row.get("outreach_tier") or "company",
-                        research.get("first_name") or row.get("first_name") or "",
-                        "",
-                        key,
-                    )
+                    greeting = _greeting(row, research, key)
                     cand_body = trim_body(greeting, retry_parts[:-1], retry_parts[-1])
                     cand_subj = build_subject(
                         row, signal, segment, step, offer_pack.subject_templates,

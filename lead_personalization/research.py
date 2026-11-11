@@ -19,7 +19,12 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from lead_personalization import linkedin
-from lead_personalization.qa import HARD_CTA_PATTERNS, contains_forbidden
+from lead_personalization.qa import (
+    HARD_CTA_PATTERNS,
+    contains_forbidden,
+    junk_hook_reasons,
+    snippet_reject_reasons,
+)
 from lead_personalization.renderers import VIDEO_EVIDENCE, PageRenderer
 from lead_personalization.segments import canonical_segment
 
@@ -112,6 +117,22 @@ def fetch_page_signals(url: str) -> dict:
     return result
 
 
+def discard_error_page(page: dict) -> dict:
+    """Treat a fetched error page ("502 Bad Gateway", "Index of /") as no page.
+
+    Otherwise its title becomes the quoted positioning snippet and its missing
+    video becomes a "your site carries no video" observation, both false.
+    """
+    if not page.get("fetched"):
+        return page
+    title = (page.get("title") or "").strip()
+    h1 = (page.get("h1") or "").strip()
+    for text in (title, h1):
+        if text and "error_page" in junk_hook_reasons(text) and len(text.split()) <= 6:
+            return {**page, "fetched": False, "error": f"error page: {text[:60]}"}
+    return page
+
+
 def needs_render(page: dict) -> bool:
     """True when the plain fetch produced nothing a copy opener could use."""
     if not page.get("fetched"):
@@ -173,6 +194,11 @@ def positioning_snippet(company: str, page: dict) -> str:
                 # overlap ("Acme" in "Welcome to Acme").
                 continue
             if not snippet_is_usable(part):
+                continue
+            # The body quotes this verbatim ("Your site leads with X"): error
+            # pages, addresses, nav labels, questions, and person names have
+            # all shipped there. Same junk filter the subject line uses.
+            if snippet_reject_reasons(part):
                 continue
             return part[0].upper() + part[1:]
     return ""
@@ -255,7 +281,10 @@ def linkedin_topic(posts: list[dict], company: str = "") -> str:
     best = ""
     best_score = -1
     for post in posts:
-        topic = (post.get("topic") or "").strip()
+        # Re-derive from the content when it is cached: topics cached before
+        # the no-mid-sentence rule carry truncated fragments.
+        content = post.get("content") or ""
+        topic = (linkedin.clean_post_topic(content) if content else (post.get("topic") or "")).strip()
         if not snippet_is_usable(topic):
             continue
         if _LOW_VALUE_TOPIC.search(topic):
@@ -394,6 +423,7 @@ def research_lead(
         rendered = renderer.render(website)
         if rendered.get("fetched"):
             page = rendered
+    page = discard_error_page(page)
     company = row.get("company_name") or row.get("Name", "")
     snippet = positioning_snippet(company, page)
 

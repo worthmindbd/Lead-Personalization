@@ -1,8 +1,8 @@
 """Tests for premium, high-deliverability Listmonk email templates.
 
 Ensures:
-- Premium Visual Presentation: centered container card, responsive Aevora Media logo, professional typography.
-- Jay's Ghost Ink Framework: 8-style stack, single data-gi="1" block, guaranteed non-empty output across all test/live scenarios.
+- Plain, personal-email presentation: no logo, card, images, or tracking pixel.
+- No hidden text of any kind (hidden blocks are a spam signal).
 - Dual-tier personalization: body variables and Listmonk fallback content.
 - Casual, human tone: zero AI slop, zero em dashes, friendly opt-out.
 - Valid Go template syntax and complete, working links.
@@ -56,91 +56,35 @@ def test_template_exists(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", TEMPLATE_FILES)
-def test_template_visual_structure_and_branding(path: Path) -> None:
-    """Ensure templates maintain the premium card structure, responsive branding, and tracking pixel."""
+def test_template_is_plain_like_a_personal_email(path: Path) -> None:
+    """Cold email must look like one person writing to another: no logo, card,
+    image, or tracking pixel. Marketing-style HTML hurts primary-inbox placement."""
     content = path.read_text(encoding="utf-8")
-
-    # 1. Centered white container card
-    assert "class=\"email-container\"" in content, f"Missing email-container in {path.name}"
-    assert "class=\"email-card\"" in content, f"Missing email-card in {path.name}"
-
-    # 2. Responsive Aevora Media logo image
-    img_matches = re.findall(r'<img\b[^>]*>', content, re.IGNORECASE)
-    assert len(img_matches) == 1, f"Expected exactly 1 logo image tag in {path.name}, found {len(img_matches)}"
-    assert "logo-light.png" in img_matches[0], f"Logo image src missing logo-light.png in {path.name}"
-    assert "Aevora Media" in img_matches[0], f"Logo alt text missing 'Aevora Media' in {path.name}"
-    assert "class=\"email-header\"" in content, f"Missing email-header in {path.name}"
-
-    # 3. Deliverability: no tracking pixel (tracking pixels trigger spam filters)
-    assert "{{ TrackView }}" not in content, f"Tracking pixel should be removed for high deliverability in {path.name}"
+    assert not re.findall(r"<img\b", content, re.IGNORECASE), f"Image found in {path.name}"
+    assert "email-card" not in content and "email-container" not in content
+    assert "{{ TrackView }}" not in content, f"Tracking pixel in {path.name}"
 
 
 @pytest.mark.parametrize("path", TEMPLATE_FILES)
-def test_template_ghost_ink_intact_and_non_empty(path: Path) -> None:
-    """Verify Jay's Ghost Ink Framework 8 CSS styles, single block rule, and guaranteed non-empty text."""
+def test_template_has_no_hidden_text(path: Path) -> None:
+    """Hidden text blocks (the former "Ghost Ink") are a classic spam/phishing
+    signal for Gmail and Outlook. They must never come back."""
     content = path.read_text(encoding="utf-8")
-    gi_matches = list(re.finditer(r'<div\s+[^>]*?data-gi=["\']?1["\']?[^>]*?>(.*?)</div>', content, re.DOTALL | re.I))
-    assert len(gi_matches) == 1, f"Expected exactly 1 ghost ink block in {path.name}, found {len(gi_matches)}"
-
-    # Required styles
-    required_styles = [
-        "color:transparent",
-        "font-size:0px",
-        "line-height:0px",
-        "max-height:0px",
-        "mso-hide:all",
-        "overflow:hidden",
-        "display:none",
-        "opacity:0",
-    ]
-    for style in required_styles:
-        assert style in content, f"Missing required hiding style '{style}' in {path.name}"
-
-    # Inner content must contain a substantial fallback passage (guaranteed non-empty)
-    inner_block = gi_matches[0].group(1)
-    # Strip Go template tags
-    clean_text = re.sub(r'\{\{.*?\}\}', '', inner_block).strip()
-    words = len(clean_text.split())
-    assert words >= 250, (
-        f"Ghost Ink fallback passage in {path.name} is too short or empty ({words} words). "
-        "Must guarantee at least 250 words of authentic studio reflection."
-    )
+    low = content.lower().replace(" ", "")
+    for marker in ("data-gi=", "display:none", "font-size:0", "mso-hide:all",
+                   "color:transparent", "opacity:0", "max-height:0"):
+        assert marker not in low, f"Hidden-text marker {marker!r} in {path.name}"
+    assert "&#847;" not in content and "&zwnj;" not in content
 
 
 @pytest.mark.parametrize("path", TEMPLATE_FILES)
-def test_template_ghost_ink_placed_at_top_single_block(path: Path) -> None:
-    """Ensure strictly ONE Ghost Ink block is placed at top of card (active content zone, before body)."""
+def test_template_fallback_subject_is_rule_compliant(path: Path) -> None:
+    """No company name and no "quick question" in the fallback subject."""
     content = path.read_text(encoding="utf-8")
-    
-    # Strictly Rule 2: Exactly 1 hidden div with data-gi="1", no other hidden text containers
-    gi_matches = list(re.finditer(r'<div\s+[^>]*?data-gi=["\']?1["\']?[^>]*?>', content, re.I))
-    assert len(gi_matches) == 1, f"Expected exactly 1 ghost ink block in {path.name}, found {len(gi_matches)}"
-
-    gi_pos = content.find('data-gi="1"')
-    assert gi_pos != -1, f"Ghost ink block not found in {path.name}"
-
-    # Placed in active content zone BEFORE email-content to shield against promo tab filters
-    content_pos = content.find('class="email-content"')
-    assert content_pos != -1, f"email-content div not found in {path.name}"
-    assert gi_pos < content_pos, f"Ghost ink must be placed in active zone BEFORE email-content in {path.name}"
-
-    # No suspicious zero-width spam evasion characters
-    assert "&#847;" not in content, f"Suspicious zero-width character &#847; found in {path.name}"
-    assert "&zwnj;" not in content, f"Suspicious zero-width character &zwnj; found in {path.name}"
-
-
-@pytest.mark.parametrize("path", TEMPLATE_FILES)
-def test_template_ghost_ink_contains_all_six_passages_and_rotation(path: Path) -> None:
-    """Ensure all 6 authentic studio reflections are embedded and rotate automatically via Sprig."""
-    from lead_personalization.ghost_ink import GHOST_INK_PASSAGES
-
-    content = path.read_text(encoding="utf-8")
-    for p in GHOST_INK_PASSAGES:
-        # Check snippet of each passage is present
-        assert p["text"][:80] in content, f"Passage '{p['id']}' missing from {path.name}"
-
-    # Ensure dynamic Sprig modulo rotation logic is present
-    assert "mod (add $id" in content, f"Automatic Sprig rotation expression missing in {path.name}"
+    title = re.search(r"<title>(.*?)</title>", content, re.S).group(1)
+    assert "company_name" not in title
+    assert "quick question" not in title.lower()
+    assert "Re:" not in title
 
 
 @pytest.mark.parametrize(

@@ -79,8 +79,13 @@ def test_nothing_still_scores_leads_for_fit() -> None:
 @pytest.mark.parametrize("category", FORMER_SKIP_CATEGORIES)
 def test_a_former_skip_category_still_gets_a_segment(category: str) -> None:
     """Segments choose the copy angle; the general pool is a full pool with its
-    own subject templates, not a demotion. Losing fit_score must not lose this."""
-    assert normalize_row(0, row(category))["aevora_segment"] == "general"
+    own subject templates, not a demotion. Losing fit_score must not lose this.
+    Some former skip categories (studios, producers) now have a targeted
+    segment; either way the segment has a full copy pool."""
+    from lead_personalization.offer_pack import load_offer_pack
+
+    segment = normalize_row(0, row(category))["aevora_segment"]
+    assert segment in load_offer_pack().segment_copy
 
 
 # ---------------------------------------------------------------------------

@@ -90,9 +90,12 @@ def test_long_hook_is_trimmed_to_whole_words() -> None:
     subj = subject(long_hook, segment="home_design", step=1)
     assert len(subj) <= 50
     assert "..." not in subj and "…" not in subj
-    # Every word that survived is a whole word from the hook, not a fragment.
-    hook_words = set(long_hook.lower().split())
-    assert set(subj.split()) <= hook_words
+    # A hook that does not fit is cut at a clause boundary or dropped for a
+    # literal template; it is never blind-cut into a mid-phrase fragment.
+    # No clause of this hook fits, and it opens with the business talking
+    # about itself, so a literal template must win.
+    assert not subj.startswith("we build")
+    assert not subject_is_fragment(subj)
 
 
 def test_over_length_subject_is_cut_at_a_word_boundary() -> None:

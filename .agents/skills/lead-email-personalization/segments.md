@@ -9,6 +9,7 @@ Maps `First_category` from mixed CSVs to Aevora outreach strategy. Used with [`s
 | Segment | Pillar | Default fit | Primary angle |
 |---------|--------|-------------|---------------|
 | `creative_marketing` | Pillar 1/2 | high | White-label fulfillment, hook variants, client campaign finishing |
+| `production_studios` | Pillar 1 | high | Video producers, photographers, recording studios: white-label overflow editing, color, and sound. Never told "your site has no video" (own `segment_openers`) |
 | `real_estate` | Pillar 3 | high | Listing tours, agent authority, partner reels |
 | `professional_services` | Pillar 3 | medium | Trust/authority from seminars and client education |
 | `medical_aesthetic` | Pillar 3 | medium | Procedure explainers from client-supplied footage |
@@ -23,8 +24,8 @@ Maps `First_category` from mixed CSVs to Aevora outreach strategy. Used with [`s
 
 | Tier | When | Greeting | Company name |
 |------|------|----------|--------------|
-| `person` | Named contact + non-generic `primary_email` | `Hi {first_name},` | In body when relevant |
-| `company` | GMB / generic inbox / business-only name | `Hi,` | In body, mid-message (not in greeting) |
+| `person` | Named contact + non-generic `primary_email` | `{Hi\|Hey\|Hello} {first_name},` or `{first_name},` | Never |
+| `company` | GMB / generic inbox / business-only name | `Hi,` / `Hey,` / `Hello,` | Never (greeting, subject, or body) |
 
 **Rule:** company tier never invents a person's name. Never open with `Hi team at {company},`.
 

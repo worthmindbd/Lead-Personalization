@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from lead_personalization.segments import is_plausible_first_name
+from lead_personalization.segments import GIVEN_NAMES, is_plausible_first_name
 
 BANNED = [
     "hope this email finds you well",
@@ -389,7 +389,10 @@ def subject_is_fragment(subject: str) -> bool:
     closed-class word like "of", "the", or "is" — "a wide selection of",
     "able company ltd is the". Reads as a broken send, so it must never ship.
     """
-    words = (subject or "").strip().lower().split()
+    stripped = (subject or "").strip()
+    if stripped and stripped[-1] in TRAILING_FRAGMENT_CHARS:
+        return True
+    words = stripped.lower().split()
     return bool(words) and words[-1] in FUNCTION_WORDS
 
 
@@ -397,14 +400,115 @@ def greeting_line(body: str) -> str:
     return (body.split("\n\n")[0] if body else "").strip()
 
 
+GREETING_WORDS = ("Hi", "Hey", "Hello")
+
+
 def greeting_is_valid(body: str, email: str = "") -> bool:
+    """Accept the rotated greetings: "Hi," / "Hey," / "Hello," for company tier,
+    and "{Hi|Hey|Hello} {name}," or bare "{name}," for a verified person."""
     line = greeting_line(body)
-    if line == "Hi,":
+    if line in {f"{w}," for w in GREETING_WORDS}:
         return True
-    match = re.match(r"^Hi (.+),$", line)
+    match = re.match(r"^(?:(?:Hi|Hey|Hello) )?([A-Za-z]+),$", line)
     if not match:
         return False
     return is_plausible_first_name(match.group(1), email)
+
+
+# The opener is the client's line: it must be about them, never the sender.
+_SENDER_CENTRIC_START = re.compile(r"^(?:i|i'm|i've|i'd|we|we're|we've|my|our|us)\b", re.I)
+SENDER_CENTRIC_PHRASES = (
+    "caught my eye",
+    "i noticed",
+    "i saw",
+    "i came across",
+    "i was looking",
+    "i wanted",
+    "i am reaching out",
+    "i'm reaching out",
+    "my name is",
+    "we help",
+)
+
+
+def opener_is_client_centric(body: str) -> bool:
+    """True when the first line after the greeting is about the client.
+
+    The solution line may say "we": that is just what the sender does. The
+    first line may not, and no line may use the stock sender-centric phrases.
+    """
+    paragraphs = [p.strip() for p in (body or "").split("\n\n")]
+    if len(paragraphs) < 2:
+        return True
+    if _SENDER_CENTRIC_START.match(paragraphs[1]):
+        return False
+    low = (body or "").lower()
+    return not any(p in low for p in SENDER_CENTRIC_PHRASES)
+
+
+# Site copy that opens like this is the middle of a sentence or filler, not a
+# phrase worth quoting: "With over a decade of experience", "There may be
+# numerous things", "Based in Dubai".
+FILLER_START = re.compile(
+    r"^(?:with|there|from|for|as|when|if|whether|to|based|over|and|or|but|so|"
+    r"because|since|all|this|that|these|those|here|it|its|it's|whatever|lately|"
+    r"sorry|hello|hi|hey|thanks|thank|yes|no|"
+    r"whether|providing|offering|serving|specializing|specialising)\b",
+    re.I,
+)
+
+
+def hook_start_is_filler(text: str) -> bool:
+    return bool(FILLER_START.match((text or "").strip()))
+
+
+# The copy is English. A German/French/Spanish/Swedish tagline quoted back
+# ("créez vos podcasts uniques avec nous") reads as a broken merge.
+_FOREIGN_WORDS = frozenset({
+    "und", "der", "die", "das", "für", "mit", "wir", "ihre", "agentur", "avec",
+    "pour", "nous", "vos", "votre", "les", "des", "une", "et", "para", "con",
+    "los", "las", "del", "nuestro", "su", "di", "per", "il", "della", "och",
+    "på", "för", "med", "het", "een", "voor", "van", "en", "uw", "og", "af",
+})
+
+
+def is_probably_not_english(text: str) -> bool:
+    low = (text or "").lower()
+    if re.search(r"[^\x00-\x7f\u2018\u2019\u201c\u201d\u2013]", low):
+        return True
+    return bool(set(re.findall(r"[a-zäöüåéèàç]+", low)) & _FOREIGN_WORDS)
+
+
+def snippet_reject_reasons(text: str) -> list[str]:
+    """Reasons a prospect snippet must never be quoted back in a body.
+
+    The body quotes positioning text verbatim ("Your site leads with X"), so it
+    needs at least the subject's junk filter (error pages, addresses, phone
+    numbers, nav labels) plus shape checks: a question, a bare place name, or
+    a list cut mid-way is not positioning.
+    """
+    raw = (text or "").strip()
+    reasons = junk_hook_reasons(raw)
+    if not raw:
+        return ["empty"]
+    if "?" in raw:
+        reasons.append("question")
+    if raw[-1] in TRAILING_FRAGMENT_CHARS:
+        reasons.append("trailing_fragment")
+    alpha_words = [w for w in re.findall(r"[A-Za-z][A-Za-z'-]*", raw)]
+    if len(alpha_words) < 3:
+        reasons.append("too_short")
+    if alpha_words and alpha_words[-1].lower() in FUNCTION_WORDS:
+        reasons.append("fragment")
+    if sum(1 for ch in raw if ch.isdigit()) >= 4:
+        reasons.append("digits")
+    if hook_start_is_filler(raw):
+        reasons.append("filler_start")
+    if is_probably_not_english(raw):
+        reasons.append("not_english")
+    if re.search(r"[#*_<>{}\[\]=]", raw):
+        reasons.append("markup")
+    return reasons
 
 
 def company_name_in_subject(subject: str, company: str) -> bool:
@@ -416,6 +520,15 @@ def company_name_in_subject(subject: str, company: str) -> bool:
     """
     company_clean = (company or "").strip()
     subject_low = (subject or "").lower()
+    # A distinctive brand word alone also leaks the name: "neuen films
+    # creates" for "Neuen Films". Category and generic words do not count.
+    subject_tokens = set(re.findall(r"[a-z0-9]+", subject_low))
+    brand_tokens = {
+        t for t in re.findall(r"[a-z0-9]+", company_clean.lower())
+        if len(t) >= 5 and t not in _CATEGORY_NOUNS and t not in _GENERIC_ORG_WORDS
+    }
+    if brand_tokens & subject_tokens:
+        return True
     if len(company_clean) < 4 or company_clean.lower() not in subject_low:
         return False
     # "at simply dentistry" is the company. "your trusted paradise valley" is
@@ -432,10 +545,28 @@ _JUNK_SUBJECT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("email", r"\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b"),
     ("address", r"\b\d{2,6}\s+[a-z]+\s+(?:blvd|blvd\.|st|street|ave|avenue|rd|road|dr|drive|ln|lane|way|suite|ste|hwy|pkwy|ct|court)\b"),
     ("zip", r"\b\d{5}(?:-\d{4})?\b"),
-    ("error_page", r"\b(?:wordpress|404|403|500|error|access denied|not found|page not found|server error|index of)\b"),
+    (
+        "error_page",
+        r"\b(?:wordpress|40[0-9]|50[0-9]|error|access denied|forbidden|not found|"
+        r"page not found|server error|index of|bad gateway|service unavailable|"
+        r"gateway timeout|under construction|coming soon|maintenance mode|"
+        r"account suspended|domain (?:is )?for sale|just another wordpress site|"
+        r"attention required|cloudflare|captcha|enable javascript|"
+        r"you have been blocked|access to this page|are you a robot)\b",
+    ),
     ("business_suffix", r"\b(?:llc|inc|corp|corporation|ltd|plc|dba)\b"),
-    ("credential", r"\b(?:d\.?d\.?s\.?|d\.?m\.?d\.?|m\.?d\.?|ph\.?d\.?|r\.?n\.?|do|np|pa)\b"),
-    ("price", r"\$\s?\d"),
+    # Bare "do"/"np"/"pa" are ordinary words ("as hard as you do"); only count
+    # them as credentials when dotted or after a name comma ("smith, do").
+    (
+        "credential",
+        r"\b(?:d\.?d\.?s\.?|d\.?m\.?d\.?|m\.?d\.?|ph\.?d\.?|r\.?n\.?)(?![a-z])"
+        r"|\b(?:d\.o\.|n\.p\.|p\.a\.)|,\s*(?:do|np|pa)\b",
+    ),
+    ("price", r"\$\s?\d|\b(?:rates|pricing|prices|price list|packages from)\b"),
+    # "#1 rated…", "No. 1 in…": a ranking claim pasted back reads as their ad.
+    ("ranking", r"(?:#\s?\d|\bno\.\s?1\b|\bnumber one\b)"),
+    # The business talking about itself ("we are locally owned").
+    ("self_reference", r"^(?:we|we're|our|i|i'm|my|us)\b"),
 )
 
 # Prospect-side phrases that are grammatical but make a poor subject line
@@ -467,7 +598,90 @@ _META_MARKER_PATTERNS = (
     "proudly serving",
     "family owned",
     "since 19",
+    "thanks for visiting",
+    "thank you for visiting",
+    "welcome to",
+    "get in touch",
+    "how to get in touch",
+    "enquire",
+    "inquire",
+    "tailored quote",
+    "free quote",
+    "call for",
+    "click",
+    "learn more",
+    "read more",
+    "home page",
+    "homepage",
+    "official site",
+    "official website",
+    "privacy policy",
+    "cookie",
+    "all rights reserved",
+    "copyright",
+    "trying to find",
+    "book a ",
+    "book your",
+    "hire us",
+    "call or text",
+    "get started",
+    "searching for",
 )
+
+# Closed-class words that may END a subject or snippet without making it a
+# fragment are covered by FUNCTION_WORDS; these are trailing characters that
+# always mean a phrase was cut mid-list ("video production,", "event video &").
+TRAILING_FRAGMENT_CHARS = ",;:&+/-(.'\""
+
+
+# Given names that are far more often a place or a plain word at the start of
+# site copy ("Austin Wedding Films", "Grace Church") than a person.
+_NAME_LIKE_PLACES = frozenset({
+    "austin", "dallas", "victoria", "sierra", "jordan", "dale", "glen", "june",
+    "april", "august", "hope", "grace", "joy", "faith", "will", "mark", "rose",
+    "ray", "dawn", "max", "hunter", "jack",
+})
+# Second words that make "<Name> <Word>" a business or category phrase, not a
+# person ("Austin Video", "Rose Wedding").
+_CATEGORY_NOUNS = frozenset({
+    "video", "videos", "videography", "photo", "photos", "photography", "film",
+    "films", "media", "studio", "studios", "wedding", "weddings", "real",
+    "estate", "home", "homes", "design", "creative", "productions", "production",
+    "events", "event", "drone", "aerial", "dental", "law", "group", "agency",
+    "and", "&",
+})
+
+
+# Words too common in business names to identify one on their own.
+_GENERIC_ORG_WORDS = frozenset({
+    "studio", "studios", "services", "service", "group", "company", "agency",
+    "solutions", "photography", "videography", "productions", "creative",
+    "media", "films", "pictures", "digital", "global", "international",
+    "visual", "visuals", "content", "marketing", "design", "designs",
+    "wedding", "weddings", "events", "event", "video", "aerial", "drone",
+    "drones", "audio", "sound", "music", "recording", "records", "house",
+    "homes", "realty", "estate", "properties", "property", "photographer",
+    "photographers", "videographer", "cinema", "cinematic", "cinematography",
+    "story", "stories", "moments", "memories", "light", "image", "images",
+    "frame", "frames", "motion", "lens", "focus", "pixel", "brand", "brands",
+    "concepts", "partners", "associates", "consulting", "network", "online",
+    "local", "first", "great", "better", "premier", "elite", "royal", "golden",
+    "united", "american", "national", "north", "south", "east", "west",
+    "london", "dubai", "houston", "austin", "dallas", "miami", "orlando",
+    "atlanta", "brisbane", "sydney", "melbourne", "toronto", "vancouver",
+})
+
+
+def starts_with_person_name(text: str) -> bool:
+    """True when text opens with "<Given> <Surname>" ("Bill Miller Photography",
+    "jillian nielsen is a langley ..."): a person, never positioning."""
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", text or "")
+    if len(words) < 2:
+        return False
+    first, second = words[0].lower(), words[1].lower()
+    if first not in GIVEN_NAMES or first in _NAME_LIKE_PLACES:
+        return False
+    return second not in _CATEGORY_NOUNS and second not in FUNCTION_WORDS
 
 
 def junk_hook_reasons(subject: str) -> list[str]:
@@ -484,6 +698,8 @@ def junk_hook_reasons(subject: str) -> list[str]:
     reasons = [name for name, pattern in _JUNK_SUBJECT_PATTERNS if re.search(pattern, low)]
     if any(marker in low for marker in _META_MARKER_PATTERNS):
         reasons.append("marketing_copy")
+    if starts_with_person_name(low):
+        reasons.append("person_name")
     return reasons
 
 
@@ -505,6 +721,8 @@ def qa(subject: str, body: str, company: str = "", email: str = "") -> dict:
         issues.append("subject_fragment")
     if not greeting_is_valid(body, email):
         issues.append("bad_greeting")
+    if not opener_is_client_centric(body):
+        issues.append("sender_centric_opener")
     if company_name_in_subject(subject, company):
         issues.append("company_name_in_subject")
     for junk in junk_hook_reasons(subject):
@@ -593,6 +811,41 @@ def campaign_repetition(sequences: list[list[tuple[str, str]]]) -> dict:
             sum(count for _, count in bodies.most_common()) / max(1, sum(bodies.values())), 4
         ),
     }
+
+
+def repetition_warnings(
+    report: dict,
+    *,
+    max_subject_share: float = 0.10,
+    max_followup_subject_share: float = 0.15,
+    max_paragraph_share: float = 0.25,
+    min_leads: int = 40,
+) -> list[str]:
+    """Human-readable warnings from a ``campaign_repetition`` report.
+
+    Small lists are skipped: with 20 leads one repeat is already 5%. Step 1 is
+    held tighter because it usually carries the lead's own hook; follow-up
+    subjects come from fixed pools (8-14 per segment), so ~10% is by design.
+    Paragraph shares count once per email, so a 5-entry CTA pool sits near 20%;
+    the 25% default flags pools that have collapsed below that.
+    """
+    leads = report.get("leads", 0)
+    if leads < min_leads:
+        return []
+    warnings = []
+    for step, info in report.get("subjects", {}).items():
+        limit = max_subject_share if step == "step_1" else max_followup_subject_share
+        if info["top_share"] > limit:
+            warnings.append(
+                f"{step}: subject {info['top_subject']!r} goes to "
+                f"{info['top_share']:.0%} of leads ({info['distinct']} distinct subjects)"
+            )
+    for body in report.get("bodies", []):
+        if body["share"] > max_paragraph_share:
+            warnings.append(
+                f"paragraph repeated in {body['share']:.0%} of leads: {body['text'][:70]!r}"
+            )
+    return warnings
 
 
 def qa_sequence(sequence: list[tuple[str, str]], company: str = "", email: str = "") -> list[dict]:

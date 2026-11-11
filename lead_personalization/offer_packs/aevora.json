@@ -4,15 +4,15 @@
   "greeting": "Hi,",
   "openers": {
     "linkedin_posts": [
-      "Your recent LinkedIn note regarding \"{snippet}\" caught my eye. Teams posting that consistently usually gain the most from sharper finishing on the video side.",
-      "Your recent LinkedIn post (\"{snippet}\") hit on an operational gap most teams gloss over: turning consistent discussion into high-retention video."
+      "Your recent LinkedIn post, \"{snippet}\", is the kind of point that usually reaches more people as a short captioned clip than as text alone.",
+      "\"{snippet}\" from your recent LinkedIn post would carry well as a 30-second clip. Points like that tend to get more reach on video than in a text post."
     ],
     "site_video": [
       "Your site already runs video, putting you ahead of most {peer} in {loc}. The gap is usually the finish: pacing, hooks, and captions built for each platform.",
       "Your site embeds video, and that is rarer than it should be for {peer} in {loc}. What separates a view from an inquiry is almost always the finishing, not the footage."
     ],
     "social_video": [
-      "The active project clips on your {channel} show consistent weekly work, but the main site carries no video. That leaves a noticeable trust gap for search traffic landing directly from Google.",
+      "Your {channel} is linked from your listing, but the website itself carries no video. Visitors who arrive from Google never see the work your followers do.",
       "You are set up on {channel}, yet the website carries no video. For {peer}, that is often the gap between a visit and an inquiry."
     ],
     "positioning": [
@@ -20,15 +20,53 @@
       "\"{snippet}\" is a strong promise on your homepage. Video is the fastest way to make it feel real, and most {peer} skip that step."
     ],
     "weak": [
-      "Most {peer} in {loc} sit on usable footage already: walkthroughs, events, phone clips that never become finished video.",
+      "Most {peer} in {loc} sit on usable footage already: walkthroughs, events, and phone clips that never become finished video.",
       "Few {peer} in {loc} publish finished video, which makes it one of the most overlooked ways to stand out right now."
     ]
+  },
+  "segment_openers": {
+    "production_studios": {
+      "site_video": [
+        "The work on your site shows the shooting side is well covered. For {peer} in {loc}, the edit queue is usually what decides delivery dates once the calendar fills.",
+        "Your site already shows finished work, so the craft is not the question. For {peer}, growth tends to stall on edit hours, not on bookings."
+      ],
+      "social_video": [
+        "Your {channel} shows the shooting side is covered. For {peer}, the slow part in busy months is usually the edit, not the shoot.",
+        "With work going out on {channel}, the question for most {peer} is edit capacity: every extra booking adds hours on the timeline."
+      ],
+      "positioning": [
+        "Your site leads with \"{snippet}\". Delivering on that in peak season usually comes down to edit capacity, not camera time.",
+        "\"{snippet}\" is a clear promise. For {peer}, keeping it when bookings stack up usually depends on how fast the edits come back."
+      ],
+      "weak": [
+        "Most {peer} in {loc} lose more hours in the edit than on set once the calendar fills.",
+        "For {peer}, the shoot is usually the fast part. The edit queue is what pushes delivery dates back."
+      ]
+    },
+    "creative_marketing": {
+      "site_video": [
+        "Your site already shows client video work. For {peer}, the pressure point is usually turnaround once several accounts want edits the same week.",
+        "Video is clearly part of what your clients get. For most {peer} in {loc}, the edit bench is what caps how many of those projects run at once."
+      ],
+      "social_video": [
+        "Your {channel} shows video is part of the mix. For {peer}, client video volume tends to grow faster than the in-house edit bench does.",
+        "For {peer} running client work on {channel}, the edit queue is usually the first thing to back up when a new account lands."
+      ],
+      "positioning": [
+        "Your site leads with \"{snippet}\". For {peer}, delivering that on video usually depends on edit capacity more than ideas.",
+        "\"{snippet}\" is a strong promise to clients. Keeping it on the video side usually comes down to how many editing hours sit behind it."
+      ],
+      "weak": [
+        "Most {peer} in {loc} get more client video requests than their in-house edit time can absorb.",
+        "For {peer}, client video tends to arrive in bursts, and the edit queue is what decides whether deadlines hold."
+      ]
+    }
   },
   "segment_copy": {
     "creative_marketing": {
       "solutions": [
         "We plug in as a white-label finishing bench: retention edits, motion graphics, and hook variants on your clients' footage, delivered under your name.",
-        "We handle overflow post-production in 48-72 hours: you drop raw client footage into a shared folder, and we deliver final branded cuts ready for client review.",
+        "We handle overflow post-production: you drop raw client footage into a shared folder, and we deliver final branded cuts ready for client review.",
         "We take raw client footage and return finished campaign cuts: retention pacing, motion graphics, and captions, delivered under your brand name.",
         "You send the raw media from any client shoot; we handle the cut, the grade, and the platform exports so your account ships on time."
       ],
@@ -42,7 +80,7 @@
     "real_estate": {
       "solutions": [
         "We finish walkthrough and event footage you already shoot: pacing, captions, and short reels cut from one master. No new shoot needed.",
-        "We turn raw property walkthroughs into finished 9:16 reels and hero tours in 48 hours, formatted for Instagram, YouTube, and MLS listings.",
+        "We turn raw property walkthroughs into finished 9:16 reels and hero tours, formatted for Instagram, YouTube, and MLS listings.",
         "We edit the walkthrough you already shot into paced reels with captions and music, formatted for every platform in one pass.",
         "You send the raw property footage, we return a hero tour plus vertical cuts sized for Instagram, YouTube, and the listing page."
       ],
@@ -56,7 +94,7 @@
     "professional_services": {
       "solutions": [
         "We turn seminars, webinars, and partner events you already record into polished authority clips: clean cuts, captions, and motion graphics.",
-        "We take recorded talks and client education sessions and finish them into short, credible clips delivered in 48-72 hours without staff editing.",
+        "We take recorded talks and client education sessions and finish them into short, credible clips delivered without staff editing.",
         "We finish the seminars and talks you record into publishable clips: clean cuts, captions, and motion graphics, on a predictable schedule.",
         "You send the raw recording, we return short authority clips and a longer cut for the site, without staff time on an editor."
       ],
@@ -70,7 +108,7 @@
     "medical_aesthetic": {
       "solutions": [
         "We finish provider and education footage you already capture: retention pacing, clean motion graphics, and platform-ready cuts.",
-        "We take raw treatment-room phone clips and turn them into clear patient education explainers delivered in 48 hours.",
+        "We take raw treatment-room phone clips and turn them into clear patient education explainers.",
         "We edit the footage you already capture into clear patient education clips: retention pacing, motion graphics, and platform-ready cuts.",
         "You send raw treatment-room and phone clips; we return finished explainers and short reels without anything on your side to edit."
       ],
@@ -84,7 +122,7 @@
     "software_tech": {
       "solutions": [
         "We turn screen recordings into motion-led product explainers with hook variants for paid and organic tests.",
-        "We deliver finished demo explainers in 3-4 days from raw Loom or screen captures, with animated UI callouts highlighting core features.",
+        "We deliver finished demo explainers from raw Loom or screen captures, with animated UI callouts highlighting core features.",
         "We turn screen recordings into motion-led explainers: animated callouts, pacing, and hook variants for paid and organic tests.",
         "You send raw Loom or screen captures; we return a launch explainer plus short feature clips for every channel."
       ],
@@ -98,7 +136,7 @@
     "home_design": {
       "solutions": [
         "We finish site and portfolio footage you already have: cinematic pacing, color grade, and hook-led reels cut from one master.",
-        "We turn phone walkthroughs and raw site clips into color-graded portfolio reels delivered in 48-72 hours, without pulling your team into an editor.",
+        "We turn phone walkthroughs and raw site clips into color-graded portfolio reels without pulling your team into an editor.",
         "We cut the site and portfolio footage you already have into cinematic reels: pacing, color grade, and hook-led cuts from one master.",
         "You send raw walkthroughs and site clips; we return color-graded portfolio reels sized for each platform, with no editing on your team."
       ],
@@ -112,7 +150,7 @@
     "luxury_retail": {
       "solutions": [
         "We finish product footage into retention-first reels and ad variants built for testing, not catalog slideshows.",
-        "We take raw product footage and deliver 10+ hook variants and vertical cuts in 48-72 hours, ready for paid ad tests.",
+        "We take raw product footage and deliver 10+ hook variants and vertical cuts, ready for paid ad tests.",
         "We edit product footage into retention-first reels and ad variants built for testing rather than a catalog slideshow.",
         "You send raw product clips; we return vertical cuts and hook variants ready for paid tests."
       ],
@@ -126,7 +164,7 @@
     "marine_auto_lifestyle": {
       "solutions": [
         "We finish walkaround and showroom footage into cinematic reels that match the price point of the inventory.",
-        "We take raw walkaround clips and deliver cinematic 9:16 inventory reels in 48 hours, ready for listing pages and social feeds.",
+        "We take raw walkaround clips and deliver cinematic 9:16 inventory reels, ready for listing pages and social feeds.",
         "We cut walkaround and showroom footage into cinematic reels that hold up against the price point of the inventory.",
         "You send raw walkaround clips; we return 9:16 showcase reels for listing pages and social feeds."
       ],
@@ -140,7 +178,7 @@
     "auto_services": {
       "solutions": [
         "We turn the before/after footage you already shoot into paced transformation reels: clean cuts, captions, and hooks built for each platform.",
-        "We take raw phone clips from the bay and return finished transformation reels in 48 hours, ready to post without shop downtime.",
+        "We take raw phone clips from the bay and return finished transformation reels, ready to post without shop downtime.",
         "We turn the before and after footage you already shoot into paced transformation reels: clean cuts, captions, and platform hooks.",
         "You send raw clips from the bay; we return finished transformation reels ready to post, with no shop downtime."
       ],
@@ -154,7 +192,7 @@
     "hospitality_events": {
       "solutions": [
         "We finish event footage into highlight reels and platform-native shorts while the moment still matters.",
-        "We take raw footage from event nights and deliver polished recap reels within 48 hours while the excitement is still fresh.",
+        "We take raw footage from event nights and deliver polished recap reels while the excitement is still fresh.",
         "We cut event footage into highlight reels and platform-native shorts while the moment is still relevant.",
         "You send the raw footage from the night; we return a recap reel and social cuts without anyone on staff editing."
       ],
@@ -168,8 +206,8 @@
     },
     "general": {
       "solutions": [
-        "We finish footage you already have, phone clips, events, walkthroughs, with retention pacing and clean graphics.",
-        "We turn raw footage from phone captures or past shoots into finished short-form video in 48-72 hours, with zero editing required on your end.",
+        "We finish footage you already have (phone clips, events, walkthroughs) with retention pacing and clean graphics.",
+        "We turn raw footage from phone captures or past shoots into finished short-form video, with no editing on your end.",
         "You send the raw media, we return platform-ready cuts with pacing, captions, and motion graphics already handled.",
         "We work as an external edit bench: your footage goes in, finished vertical and horizontal cuts come out on a predictable schedule."
       ],
@@ -179,36 +217,63 @@
         "The same raw capture can carry a month of content once the cutting and formatting are handled off-site.",
         "Clients rarely need more footage. They need the footage they have to come out finished."
       ]
+    },
+    "production_studios": {
+      "solutions": [
+        "We work as an overflow edit bench for studios: you send the raw footage and notes, we return graded, finished cuts under your name.",
+        "Highlight films, social cutdowns, and full edits come back color-graded and sound-mixed, ready for your client review, white-label.",
+        "You keep shooting; we handle the edit, color, and audio mix on your timeline, delivered under your studio's name.",
+        "When bookings stack up, we take whole projects off your timeline: assembly, cut, grade, mix, and delivery files."
+      ],
+      "second_angle": [
+        "Peak season is usually when the backlog builds: the shoots are booked, and the edits wait.",
+        "A second edit bench means saying yes to more shoots without hiring another editor.",
+        "Clients judge a studio on delivery time almost as much as on the footage itself.",
+        "Most studios keep creative direction in-house and hand off the hours of assembly and finishing."
+      ]
     }
   },
+  "proof_lines": [
+    "For scale: one 90-second master typically becomes ten platform-native shorts and twenty hook variants for testing.",
+    "Finishing covers the whole chain in one pass: edit, motion graphics, DaVinci color, and the audio mix.",
+    "Every project runs through a client portal, so progress and review links sit in one place instead of an email thread.",
+    "Each project starts with a review of the raw media and goals, so the edit plan is agreed before anything gets cut.",
+    "Deliverables come out sized for each platform: vertical for Reels and Shorts, horizontal for YouTube and the site."
+  ],
   "cta_pools": {
     "1": [
       "Interested in a sample edit from one clip you already have?",
       "Worth a short sample cut from your existing footage?",
-      "Want a sample edit matched to your style of work?"
+      "Want a sample edit matched to your style of work?",
+      "Open to seeing one of your clips finished as a test?",
+      "Would a test edit on one of your clips be useful?"
     ],
     "2": [
-      "Want an example of how we'd structure that?",
+      "Want an example of how that would look for your work?",
       "Open to one before/after example?",
-      "Useful if I send a short example matched to your niche?"
+      "Worth seeing a short example matched to your niche?",
+      "Would a one-page breakdown of that workflow help?",
+      "Want to see a recent example from a similar business?"
     ],
     "3": [
       "When footage gets shot on your side, who finishes it, or does it wait?",
-      "Should I check back next quarter, or leave this off your radar?",
-      "Worth keeping in mind for when queues spike, or is capacity completely handled?"
+      "Is editing handled in-house right now, or is it the part that slips?",
+      "Worth keeping in mind for when queues spike, or is capacity already covered?",
+      "Is video on the list for this quarter, or later in the year?",
+      "Who should I talk to about video, if not you?"
     ]
   },
   "closers": [
-    "Last note from me: most teams we work with didn't lack footage, they lacked finishing time.",
-    "Closing the loop here. Publishing finished video consistently is nearly always a bandwidth problem, not a content problem.",
-    "Last one from me. The footage is usually the easy part; it is the finishing that quietly stops happening.",
-    "Stepping back out. Businesses rarely stall on content, they stall on getting raw media out the other side finished.",
-    "Final note. Most of the teams we speak to have footage going unused, not footage going missing.",
-    "Signing off here. Recording is rarely the constraint; editing capacity is.",
-    "This will be my last one. What tends to stall video output is the edit queue, not the ideas.",
-    "Closing out. When the edit step has no owner, the footage just accumulates on a drive somewhere.",
-    "Last email, I promise. The gap between a shoot and a publish is almost always the finishing.",
-    "Wrapping up. What we hear most is not a lack of footage, it is a lack of hours to finish it."
+    "One last note: most teams have plenty of footage. What runs short is the time to finish it.",
+    "Publishing finished video consistently is nearly always a bandwidth problem, not a content problem.",
+    "The footage is usually the easy part; it is the finishing that quietly stops happening.",
+    "Businesses rarely stall on content. They stall on getting raw media out the other side finished.",
+    "Most of the teams we speak to have footage going unused, not footage going missing.",
+    "Recording is rarely the constraint; editing time is.",
+    "What tends to stall video output is the edit queue, not the ideas.",
+    "When the edit step has no owner, the footage just accumulates on a drive somewhere.",
+    "The gap between a shoot and a publish is almost always the finishing.",
+    "Most teams are not short on footage. They are short on hours to finish it."
   ],
   "support_lines": [
     "If it's backlog, we run as a quiet post-production bench on footage you supply.",
@@ -294,7 +359,11 @@
         "paid social clips",
         "campaign cutdowns",
         "client deliverable pacing",
-        "asset batch workflow"
+        "asset batch workflow",
+        "client edit overflow",
+        "one master, many cuts",
+        "account video capacity",
+        "client revision rounds"
       ],
       "3": [
         "overflow edit workflow",
@@ -304,7 +373,9 @@
         "campaign deadline risk",
         "asset turnaround",
         "client pitch video",
-        "campaign recap clips"
+        "campaign recap clips",
+        "edit queue question",
+        "in-house vs overflow edits"
       ]
     },
     "professional_services": {
@@ -518,7 +589,11 @@
         "phone clip pacing",
         "one master many cuts",
         "vertical cut pacing",
-        "channel format variants"
+        "channel format variants",
+        "finished clips from raw",
+        "month of posts from one shoot",
+        "clip backlog",
+        "edit-ready footage"
       ],
       "3": [
         "video workflow question",
@@ -528,7 +603,45 @@
         "content rhythm question",
         "editing capacity check",
         "posting rhythm question",
-        "who cuts the clips"
+        "who cuts the clips",
+        "who finishes your video",
+        "edit time question"
+      ]
+    },
+    "production_studios": {
+      "1": [
+        "{city} edit overflow",
+        "{hook}",
+        "peak season edit queue",
+        "white-label edit bench",
+        "studio edit capacity",
+        "{city} studio edits",
+        "edit hours vs shoot hours",
+        "overflow editing",
+        "finished cuts, your name",
+        "backlog after busy weekends",
+        "color and sound handoff",
+        "second editor on call"
+      ],
+      "2": [
+        "second edit bench",
+        "overflow edits",
+        "delivery time vs bookings",
+        "color and mix handoff",
+        "highlight film turnaround",
+        "cutdowns from your masters",
+        "edit backlog in busy months",
+        "finished cuts under your name"
+      ],
+      "3": [
+        "who edits your shoots",
+        "edit queue question",
+        "backlog after shoot days",
+        "in-house vs overflow edits",
+        "delivery date question",
+        "studio capacity check",
+        "post-production handoff",
+        "edit hours question"
       ]
     }
   }

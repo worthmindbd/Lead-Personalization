@@ -68,7 +68,9 @@ def test_sequence_passes_qa(segment: str, evidence: str) -> None:
     for step, (subj, body) in enumerate(seq, start=1):
         result = qa(subj, body, research["company"])
         assert result["pass"], f"{segment}/{evidence} email {step}: {result['issues']} (subject={subj!r})"
-        assert body.startswith("Hi,\n\n"), f"{segment}/{evidence} email {step}: greeting not bare 'Hi,'"
+        assert body.split("\n\n")[0] in {"Hi,", "Hey,", "Hello,"}, (
+            f"{segment}/{evidence} email {step}: company-tier greeting must be bare"
+        )
 
     assert not sequence_issues(seq), f"{segment}/{evidence}: sequence issues"
 

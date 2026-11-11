@@ -38,6 +38,16 @@ DELIBERATE_MIGRATIONS = {
     "Housing development",     # -> real_estate (9240c43)
     "Real estate appraiser",   # -> real_estate (9240c43)
     "Building firm",           # -> home_design  (9240c43)
+    # 2026-11-12: studios, photographers, and producers moved out of
+    # creative_marketing/general into production_studios. Their old openers
+    # told video producers "your site has no video"; the new segment pitches
+    # white-label edit capacity. Old rows keep their copy.
+    "Aerial photographer", "Animation studio", "Audio visual consultant",
+    "Commercial photographer", "Drone service", "Film production company",
+    "Movie studio", "Music producer", "Photo booth", "Photo lab", "Photographer",
+    "Photography service", "Photography studio", "Portrait studio",
+    "Recording studio", "Video duplication service", "Video editing service",
+    "Video production service", "Wedding photographer",
 }
 
 

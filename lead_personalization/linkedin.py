@@ -100,12 +100,19 @@ def clean_post_topic(content: str, max_words: int = 12) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     if not text:
         return ""
-    clause = re.split(r"(?<=[.!?])\s+|\n", text)[0].strip(" .,:;!-\"'")
-    words = clause.split()
-    if len(words) > max_words:
-        clause = " ".join(words[:max_words])
+    sentence = re.split(r"(?<=[.!?])\s+|\n", text)[0].strip(" .,:;!-\"'")
+    clause = sentence
+    if len(clause.split()) > max_words:
+        # Never quote a post cut mid-sentence ("...with Kelly H, Partner at").
+        # Fall back to a leading clause that ends on punctuation the author
+        # wrote; if there is none short enough, there is no quotable topic.
+        clause = ""
+        for match in re.finditer(r"[,:;]\s|\s[-–]\s", sentence):
+            prefix = sentence[: match.start()].strip(" .,:;!-\"'")
+            if 4 <= len(prefix.split()) <= max_words:
+                clause = prefix
     clause = clause.strip(" .,:;!-\"'")
-    if len(clause) < 8:
+    if len(clause) < 8 or len(clause.split()) < 3:
         return ""
     return clause
 

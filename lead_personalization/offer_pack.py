@@ -10,7 +10,7 @@ foundation for future multi-tenant use.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PACKS_DIR = Path(__file__).resolve().parent / "offer_packs"
@@ -40,6 +40,16 @@ class OfferPack:
     closers: list[str]
     support_lines: list[str]
     subject_templates: dict[str, dict[int, list[str]]]
+    # Optional per-segment opener overrides, keyed segment -> evidence -> pool.
+    # A studio that already makes video must not read "your site has no video".
+    segment_openers: dict[str, dict[str, list[str]]] = field(default_factory=dict)
+    # Optional email-2 proof points (concrete deliverables from OFFER.md). When
+    # empty, email 2 falls back to a second solution line.
+    proof_lines: list[str] = field(default_factory=list)
+
+    def opener_pool(self, segment: str, evidence: str) -> list[str]:
+        override = self.segment_openers.get(segment, {}).get(evidence)
+        return override or self.openers[evidence]
 
     def segment_solutions(self, segment: str) -> dict[str, list[str]]:
         # Legacy keys (e.g. the pre-rename "low_fit") resolve through the alias
@@ -117,9 +127,19 @@ def _validate(pack: OfferPack) -> None:
         + [p.lower() for p in HARD_CTA_PATTERNS]
         + ["—", "...", "…"]
     )
+    for seg, by_evidence in pack.segment_openers.items():
+        if seg not in pack.segment_copy:
+            raise OfferPackError(f"segment_openers has unknown segment {seg!r}")
+        unknown = sorted(set(by_evidence) - set(REQUIRED_EVIDENCE))
+        if unknown:
+            raise OfferPackError(f"segment_openers[{seg}] has unknown evidence {unknown}")
     pools: list[tuple[str, str]] = []
     for evidence, items in pack.openers.items():
         pools.extend((f"openers[{evidence}]", s) for s in items)
+    for seg, by_evidence in pack.segment_openers.items():
+        for evidence, items in by_evidence.items():
+            pools.extend((f"segment_openers[{seg}][{evidence}]", s) for s in items)
+    pools.extend(("proof_lines", s) for s in pack.proof_lines)
     for seg, blocks in pack.segment_copy.items():
         for key in ("solutions", "second_angle"):
             pools.extend(
@@ -140,6 +160,17 @@ def _validate(pack: OfferPack) -> None:
         if hit:
             raise OfferPackError(
                 f"offer pack '{pack.name}' {where} contains forbidden text {hit!r}"
+            )
+    # Openers, second angles, and closers lead a body: they must be about the
+    # client, never "I/We ..." or "caught my eye".
+    from lead_personalization.qa import opener_is_client_centric
+
+    lead_pools = [w for w in pools if w[0].startswith(("openers", "segment_openers", "closers"))]
+    lead_pools += [w for w in pools if "[second_angle]" in w[0]]
+    for where, text in lead_pools:
+        if not opener_is_client_centric("Hi,\n\n" + text):
+            raise OfferPackError(
+                f"offer pack '{pack.name}' {where} is sender-centric: {text[:60]!r}"
             )
 
 
@@ -163,6 +194,8 @@ def offer_pack_from_dict(data: dict) -> OfferPack:
                 seg: _coerce_int_keys(steps)
                 for seg, steps in data["subject_templates"].items()
             },
+            segment_openers=data.get("segment_openers") or {},
+            proof_lines=data.get("proof_lines") or [],
         )
     except KeyError as exc:
         raise OfferPackError(f"offer pack missing required field: {exc}") from exc
@@ -188,6 +221,8 @@ def offer_pack_to_dict(pack: OfferPack) -> dict:
             seg: {str(k): v for k, v in steps.items()}
             for seg, steps in pack.subject_templates.items()
         },
+        "segment_openers": pack.segment_openers,
+        "proof_lines": pack.proof_lines,
     }
 
 

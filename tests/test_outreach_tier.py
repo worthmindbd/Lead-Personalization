@@ -76,12 +76,12 @@ def test_person_tier_greets_by_first_name_and_company_tier_does_not():
     person = normalize_row(0, person_row())
     item = research_lead(person, None, render_fallback=False, throttle_s=0)
     seq, _ = generate_sequence(person, item, PACK)
-    assert seq[0][1].startswith("Hi Jane,\n\n")
+    assert seq[0][1].split("\n\n")[0] in {"Hi Jane,", "Hey Jane,", "Hello Jane,", "Jane,"}
 
     company = normalize_row(0, raw_row())
     item2 = research_lead(company, None, render_fallback=False, throttle_s=0)
     seq2, _ = generate_sequence(company, item2, PACK)
-    assert seq2[0][1].startswith("Hi,\n\n")
+    assert seq2[0][1].split("\n\n")[0] in {"Hi,", "Hey,", "Hello,"}
 
 
 def test_person_greeting_passes_qa():

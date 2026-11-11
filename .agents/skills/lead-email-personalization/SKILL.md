@@ -98,12 +98,15 @@ Legacy real-estate list (`Real-Estate-USA-500.csv`) uses `company`/`title` colum
 | `person` | Named contact + non-generic email | `{Hi|Hey|Hello} {first_name},` or `{first_name},` |
 | `company` | GMB / Google Maps / generic inbox / business-only name | `{Hi,|Hey,|Hello,}` — **strictly no company name or "team" anywhere in greeting or copy**; straight to icebreaker on line 2 |
 
-### Client-centric mandate (Avoid "I / We / My")
-- Always talk about the client, their business, their market, or their observable assets.
-- **Strictly Banned**: Never use sender-centered language like *"I do"*, *"I work"*, *"I would"*, *"I want"*, *"I noticed I could"*, *"I was looking at"*, *"I am reaching out"*, *"We help"*, *"My name is"*, or *"I bla bla"*.
-- The first line must be a specific observation, verifiable asset gap, local market reality, or thoughtful operational point.
+### Client-centric mandate (client first line)
 
-**Company-tier body structure (enforced by `process_batch.py`):** observed issue → our solution → soft CTA. Openers, solutions, and CTAs come from variant pools picked deterministically per lead (`copy_variant` column records the combination).
+The **first line** after the greeting (opener, second angle, closer) is about the client: their business, category, market, or observable assets. It never starts with *I / We / My / Our*, and no line uses stock sender-centric phrases: *"caught my eye"*, *"I noticed"*, *"I came across"*, *"I was looking at"*, *"I am reaching out"*, *"My name is"*, *"We help companies like yours"*. Enforced by `qa.opener_is_client_centric` (QA issue `sender_centric_opener`) and at offer-pack load.
+
+The solution line may say what "we" do ("We finish the footage you already shoot..."): that is plain, honest copy, not sender-centric filler.
+
+The first line must be a specific, **verifiable** observation, asset gap, local market reality, or operational point. Never claim more than research checked (a linked Instagram is "set up on Instagram", not "consistent weekly work"), and never quote prospect text that fails `qa.snippet_reject_reasons` (error pages, addresses, nav/CTA labels, questions, person names, filler, markup, non-English, mid-sentence cuts).
+
+**Body structure (enforced by `copywriter.py`):** email 1 = observed issue → our solution → soft CTA; email 2 = new angle → one proof point from `OFFER.md` → soft CTA; email 3 = breakup closer → support line → question. Openers, solutions, and CTAs come from variant pools picked deterministically per lead (`copy_variant` column records the combination).
 
 See [frameworks.md](frameworks.md) and [segments.md](segments.md) for segment angles.
 
